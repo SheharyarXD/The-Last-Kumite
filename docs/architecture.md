@@ -55,83 +55,51 @@ $0000-$000F   NMI / Frame variables
 $0010-$001F   Input system
   $0010  pad1_prev        ; Previous frame buttons
   $0011  pad1_new         ; Newly pressed buttons this frame
-  $0011  pad1_held        ; Currently held buttons (alias for work)
-  $0012  pad2_prev        ; Controller 2 (unused but read)
-  $0013  pad2_new
-  $0014  combo_buffer     ; Combo input buffer index
-  $0015  combo_timer      ; Frames remaining in combo window
-  $0016  special_cooldown ; Frames until special can be used again
-  $0017  input_buffer[8]  ; Circular buffer for combo detection ($17-$1E)
-  $001F  block_timer      ; Block recovery frames
+  $0012  pad1_held        ; Currently held buttons
+  $0013  pad2_prev        ; Controller 2 (unused but read)
+  $0014  pad2_new
+  $0015  combo_buffer_idx ; Combo input buffer index
+  $0016  combo_timer      ; Frames remaining in combo window
+  $0017  special_cooldown ; Frames until special can be used again
+  $0018-$001F input_buffer_dirs[8] / input_buffer_btns[8] (see zeropage.asm
+               for exact byte ranges — these are two parallel 8-entry
+               circular buffers used by the special-move detector)
 
 $0020-$002F   Rendering / PPU
   $0020  oam_index        ; Next free OAM slot
   $0021  nametable        ; Current nametable (0 or 1)
-  $0022  render_flag      ; 1 = rendering enabled this frame
-  $0023  bg_update_ptr    ; Pointer to pending BG update data
-  $0024  bg_update_count  ; Number of BG tiles to update
-  $0025-$002F  reserved
+  $0024  bg_update_count  ; Number of pending BG update ENTRIES (3 bytes each)
+  $0027  pad2_held        ; Controller 2 working register
+  $0028  bg_update_byte_idx ; Next free BYTE offset into bg_update_buf
+                             ; (kept separate from bg_update_count, which the
+                             ; consumer in ProcessBGUpdates decrements once
+                             ; per 3-byte entry — conflating the two was a
+                             ; real bug; see docs/testing_report.md #19)
 
 $0030-$004F   Global game
-  $0030  match_timer      ; Match countdown timer (seconds)
+  $0030  match_timer_sec  ; Match countdown timer (seconds)
   $0031  match_timer_sub  ; Sub-frames for timer
-  $0032  screen_shake_x   ; Screen shake offset X
-  $0033  screen_shake_y   ; Screen shake offset Y
-  $0034  shake_timer      ; Screen shake duration
-  $0035  vs_screen_timer  ; VS intro display timer
-  $0036  death_type       ; Random death type (0-3) for game over
-  $0037-$003F  reserved
+  $0038  fade_level       ; 0-5 brightness/emphasis level (FadeUpdate)
 
-$0040-$005F   Player state (Michael Rivers)
+$0040-$004F   Player state (Michael Rivers) — partial, see zeropage.asm
   $0040  plr_x            ; X position (pixel, 0-255)
   $0041  plr_y            ; Y position (pixel, 0-239)
   $0042  plr_state        ; Animation/action state
-  $0043  plr_frame        ; Current animation frame
-  $0044  plr_frametimer   ; Frames until next anim frame
-  $0045  plr_dir          ; Facing direction (0=right, 1=left)
   $0046  plr_hp           ; Health (0-100)
-  $0047  plr_hp_disp      ; Displayed health (for bar animation)
-  $0048  plr_vel_x        ; X velocity (signed, subpixel in lower nibble)
   $0049  plr_vel_y        ; Y velocity (signed, for jumps)
   $004A  plr_grounded     ; 1 = on ground
-  $004B  plr_block        ; 1 = blocking
-  $004C  plr_hitstun      ; Frames remaining in hit stun
-  $004D  plr_atk_active   ; 1 = attack hitbox active
-  $004E  plr_atk_type     ; Current attack type (punch/kick/jump)
-  $004F  plr_atk_timer    ; Frames remaining in attack
-  $0050  plr_atk_hit      ; 1 = attack already connected (no double hits)
-  $0051  plr_stunned      ; 1 = stunned by special
-  $0052  plr_stun_timer   ; Stun duration remaining
-  $0053  plr_cooldown     ; Attack cooldown frames
-  $0054-$005F  reserved
 
-$0060-$007F   Enemy state (Lightning)
+$0060-$007F   Enemy state (Lightning) — partial, see zeropage.asm
   $0060  en_x             ; X position
   $0061  en_y             ; Y position
-  $0062  en_state         ; Animation/action state
-  $0063  en_frame         ; Current animation frame
-  $0064  en_frametimer    ; Frames until next anim frame
-  $0065  en_dir           ; Facing direction
   $0066  en_hp            ; Health (0-80)
-  $0067  en_hp_disp       ; Displayed health
-  $0068  en_vel_x         ; X velocity
-  $0069  en_vel_y         ; Y velocity
-  $006A  en_grounded      ; 1 = on ground
-  $006B  en_block         ; 1 = blocking
-  $006C  en_hitstun       ; Frames remaining in hit stun
-  $006D  en_atk_active    ; 1 = attack hitbox active
-  $006E  en_atk_type      ; Current attack type
-  $006F  en_atk_timer     ; Frames remaining in attack
-  $0070  en_atk_hit       ; 1 = attack already connected
-  $0071  en_stunned       ; 1 = stunned
-  $0072  en_stun_timer    ; Stun duration remaining
-  $0073  en_cooldown      ; Attack cooldown
   $0074  en_ai_state      ; AI behavioral state
-  $0075  en_ai_timer      ; AI decision timer
-  $0076  en_aggro         ; 1 = aggressive mode (HP < 30%)
-  $0077  en_dash_timer    ; Dash duration / cooldown
-  $0078  en_react_timer   ; Reaction delay timer
-  $0079-$007F  reserved
+
+This document gives the general shape of the memory map; `zeropage.asm` is
+the authoritative source for exact addresses — several addresses listed in
+earlier drafts of this document did not match the actual source and have
+been removed here rather than left wrong. When in doubt, grep
+`zeropage.asm`.
 
 $0080-$009F   Combat system
   $0080  plr_hitbox_x1    ; Player attack hitbox left
@@ -186,24 +154,23 @@ $00D0-$00FF  Reserved for future / stack safety
 STATE_TITLE     (0)  → Title screen with "THE LAST KUMITE" / "PRESS START"
                          → START pressed → STATE_INTRO
 
-STATE_INTRO     (1)  → Story text scroll sequence
-                         → All text complete + START → STATE_FIGHT (after VS screen)
+STATE_INTRO     (1)  → Story text scroll sequence (4 pages)
+                         → All pages read + START → STATE_VS
 
-STATE_FIGHT     (2)  → Main combat gameplay
+STATE_VS        (2)  → VS screen display ("MICHAEL RIVERS vs LIGHTNING")
+                         → Timer expires → STATE_FIGHT
+
+STATE_FIGHT     (3)  → Main combat gameplay
                          → Player HP = 0 → STATE_LOSE
                          → Enemy HP = 0 → STATE_WIN
                          → TIME = 0 → Compare HP → STATE_WIN or STATE_LOSE
 
-STATE_VS        (3)  → VS screen display ("MICHAEL RIVERS vs LIGHTNING")
-                         → Timer expires → STATE_FIGHT
-
 STATE_WIN       (4)  → "LIGHTNING DEFEATED. ENTRY GRANTED."
-                         → START pressed → STATE_GAMEOVER (demo ends)
 
-STATE_LOSE      (5)  → Brief KO message
+STATE_LOSE      (5)  → Brief frozen KO pose (~2 seconds)
                          → Timer expires → STATE_GAMEOVER
 
-STATE_GAMEOVER  (6)  → Ron Hall cutscene + death text
+STATE_GAMEOVER  (6)  → Ron Hall cutscene + randomized death text
                          → START pressed → STATE_TITLE
 ```
 
@@ -314,62 +281,81 @@ Special detection:
   On match: trigger special if cooldown <= 0 and state allows
 ```
 
-## 9. CHR-ROM Layout (8KB)
+## 9. CHR-ROM Layout (8KB) — generated by tools/chr_convert.py + tools/bg_convert.py
 
 ```
-Pattern Table 0 ($0000-$0FFF) — Background tiles
-$0000-$007F   Blank / space tiles
-$0080-$00FF   Alphabet tiles (A-Z)
-$0100-$017F   Numbers and punctuation
-$0180-$01FF   Title screen decorative elements
-$0200-$02FF   Background stage tiles (outdoor fighting area)
-$0300-$03FF   HUD elements (health bar, timer, VS)
-$0400-$04FF   UI borders, panels, text boxes
-$0500-$05FF   Ron Hall cutscene tiles
-$0600-$06FF   Reserved
-$0700-$07FF   Reserved
+Pattern Table 0 ($0000-$0FFF) — Background / UI / stage tiles (local 0-255)
+  tile 0-1     Blank
+  tile 2-7     UI/health-bar border elements
+  tile 16-31   Health bar fill/empty segments
+  tile 32-127  Fight stage background (castle ruins, converted from
+               assets/32732.png by tools/bg_convert.py — up to 96 unique
+               tiles; see docs/asset_pipeline.md)
+  tile 128-153 Alphabet A-Z
+  tile 154-191 Numbers, punctuation, blank dotted-pattern fill
+  tile 242, 252  Decorative tiles used directly by title.asm (sparkle
+                 flash) and vs_screen.asm (portrait placeholder blocks)
 
-Pattern Table 1 ($1000-$1FFF) — Sprite tiles
-$1000-$10FF   Michael Rivers: idle frames
-$1100-$11FF   Michael Rivers: walk frames
-$1200-$12FF   Michael Rivers: punch/kick frames
-$1300-$13FF   Michael Rivers: jump, crouch, hit frames
-$1400-$14FF   Lightning: idle frames
-$1500-$15FF   Lightning: walk/dash frames
-$1600-$16FF   Lightning: attack frames
-$1700-$17FF   Lightning: hit, block, KO frames
-$1800-$18FF   Hit effects (impact stars, flash)
-$1900-$19FF   Special effects (stun aura, counter flash)
-$1A00-$1AFF   Reserved
-$1B00-$1BFF   Reserved
-$1C00-$1CFF   Reserved
-$1D00-$1DFF   Reserved
-$1E00-$1EFF   Reserved
-$1F00-$1FFF   Reserved
+Pattern Table 1 ($1000-$1FFF) — Sprite tiles, addressed by sprites as
+                                 LOCAL index 0-255 (= global tile - 256)
+  tile 0-67     Michael Rivers (red gi) — 17 frames x 4 tiles each (2x2
+                16x16 metasprites): idle(2), walk(4), crouch(1), jump(2),
+                punch(2), kick(3), block(1), hit(1), KO(1). See
+                src/sprite_tiles_player.inc (generated) for the exact
+                base-tile-per-frame table.
+  tile 68-135   Lightning (blue gi) — same 17-pose set, generated the same
+                way. See src/sprite_tiles_enemy.inc (generated).
+  tile 136-155  Hit-impact and stun-effect shapes, placed dynamically right
+                after both fighters' frames (base computed at conversion
+                time, exposed to ppu.asm as EFFECT_TILE_BASE via the
+                generated src/sprite_tiles_const.inc — never hardcode this
+                offset, it depends on how many frames the fighters have).
 ```
+
+Both fighters render as a 2x2 (16x16) OAM metasprite per frame: 4
+consecutive CHR tiles in `top-left, top-right, bottom-left, bottom-right`
+order, drawn by `DrawMetasprite` in `ppu.asm`. Horizontal flip (facing
+left) swaps which tile renders on which side, not just the hardware mirror
+bit — see the function's comments. `PPUCTRL_SPR_PT` is set (sprites read
+from pattern table 1); background tiles (text, UI, stage) are read from
+pattern table 0 as normal.
+
+The sprite-map tables (`player_spritemap`/`enemy_spritemap`) and the
+effect-tile base offset are **generated**, not hand-maintained — see
+`docs/asset_pipeline.md`. Do not hand-edit `src/sprite_tiles_*.inc` or
+`src/stage_bg.inc`; change the source art under `chr/src_frames/` or
+`assets/32732.png` and re-run the relevant `tools/*.py` script (or
+`make chr` / `make bg`).
 
 ## 10. Build System
 
 ```
-Toolchain: ca65 (assembler) + ld65 (linker)
-Configuration: last_kumite.cfg (ld65 linker script)
-Output: last_kumite.nes (iNES format)
+Toolchain: ca65 (assembler) + ld65 (linker), both from cc65
+Configuration: linker/nrom256.cfg (ld65 linker script, NROM-256 layout)
+Output: build/last_kumite.nes (iNES format)
 
 Build steps:
-1. Assemble each .asm file to .o object files
-2. Link all objects with .cfg file
-3. Add iNES header (16 bytes) to final binary
+1. Assemble each real translation unit (NOT constants.asm/zeropage.asm/
+   macros.asm, which are .include-only headers) to a .o file with
+   `ca65 -U` (implicit cross-module imports; no .import directives
+   are used anywhere in this codebase)
+2. Link all objects against linker/nrom256.cfg with ld65, producing a raw
+   32768-byte PRG binary
+3. build_rom.py prepends the 16-byte iNES header and appends chr/tiles.chr
 
 Makefile targets:
-  make          → Build ROM
+  make          → Build ROM (build/TheLastKumite.nes)
+  make chr      → Re-author + re-convert character sprites
+  make bg       → Re-convert the fight-stage background
+  make assets   → Both of the above
   make clean    → Remove build artifacts
-  make run      → Launch in emulator (Mesen)
+  make run      → Build and launch in FCEUX (EMU= in the Makefile)
 ```
 
 ## 11. Optimization Strategy for NES
 
-1. **Sprite Limit:** Max 64 sprites, 8 per scanline. Characters use 4×4 metasprites (16 sprites each). Effects use 1-2 sprites.
-2. **CHR Constraints:** 256 tiles per pattern table. Characters share frames where possible (walking mirrored).
+1. **Sprite Limit:** Max 64 sprites, 8 per scanline. Each fighter is a 2x2 (16×16) OAM metasprite per frame (4 sprites). Effects use 1-4 sprites.
+2. **CHR Constraints:** 256 tiles per pattern table. See section 9 for the current budget breakdown (sprites: 0-155 of 256 used; background: 32-191 of 256 used).
 3. **CPU Budget:** Target < 2000 cycles per frame for logic (≈30% of available 2273 cycles during VBlank + rendering).
 4. **No MMC needed:** NROM is sufficient for 1-level demo. All data fits in 32KB PRG.
 5. **Background updates:** Only update changed tiles (health bar changes), not full screen.

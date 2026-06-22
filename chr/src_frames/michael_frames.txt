@@ -1,0 +1,17 @@
+idle0
+idle1
+walk0
+walk1
+walk2
+walk3
+crouch0
+jump0
+jump1
+punch0
+punch1
+kick0
+kick1
+kick2
+block0
+hit0
+ko0

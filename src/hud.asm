@@ -2,6 +2,10 @@
 ; Health bars, match timer, VS display, character names
 ; ============================================================================
 
+.include "constants.asm"
+.include "zeropage.asm"
+.include "macros.asm"
+
 .segment "CODE"
 
 ; =============================================================================
@@ -103,21 +107,22 @@ DrawPlayerBar:
     ; Player bar at nametable position (3, 3) to (12, 3)
     ; 10 tiles = 100 HP / 10 per tile
     lda plr_hp_disp
-    jsr CalcBarTiles
+    jsr CalcBarTiles         ; temp1 = filled tile count
 
-    ; Write to BG update buffer
-    ldx bg_update_count
+    ; Write 10 tiles, each as its own full [addr_hi][addr_lo][tile] entry
+    ldy #0
+@plr_bar_loop:
+    ldx bg_update_byte_idx
     lda #$20
     sta bg_update_buf, x
     inx
-    lda #$83                ; Row 3, col 3 ($2083)
+    tya
+    clc
+    adc #$83                ; Row 3, col 3 ($2083) + tile offset
     sta bg_update_buf, x
     inx
 
-    ; Write 10 tiles
-    ldy #0
-@plr_bar_loop:
-    cpy temp1               ; Filled tiles
+    cpy temp1                ; Filled tiles
     bcc @plr_fill
     lda #$02                ; Empty bar tile
     jmp @plr_tile
@@ -126,12 +131,12 @@ DrawPlayerBar:
 @plr_tile:
     sta bg_update_buf, x
     inx
+    stx bg_update_byte_idx
+    inc bg_update_count      ; One more 3-byte entry queued
+
     iny
     cpy #10
     bcc @plr_bar_loop
-    stx bg_update_count
-    inc bg_update_count
-    inc bg_update_count
     rts
 
 ; =============================================================================
@@ -142,16 +147,18 @@ DrawEnemyBar:
     lda en_hp_disp
     jsr CalcBarTiles
 
-    ldx bg_update_count
+    ldy #0
+@en_bar_loop:
+    ldx bg_update_byte_idx
     lda #$20
     sta bg_update_buf, x
     inx
-    lda #$93                ; Row 3, col 19 ($2093)
+    tya
+    clc
+    adc #$93                ; Row 3, col 19 ($2093) + tile offset
     sta bg_update_buf, x
     inx
 
-    ldy #0
-@en_bar_loop:
     cpy temp1
     bcc @en_fill
     lda #$02
@@ -161,12 +168,12 @@ DrawEnemyBar:
 @en_tile:
     sta bg_update_buf, x
     inx
+    stx bg_update_byte_idx
+    inc bg_update_count
+
     iny
     cpy #10
     bcc @en_bar_loop
-    stx bg_update_count
-    inc bg_update_count
-    inc bg_update_count
     rts
 
 ; =============================================================================
@@ -206,31 +213,36 @@ DrawTimer:
     sta temp2               ; Ones digit
     stx temp1               ; Tens digit
 
-    ; Queue BG update
-    ldx bg_update_count
+    ; Tens digit entry
+    ldx bg_update_byte_idx
     lda #$20
     sta bg_update_buf, x
     inx
     lda #$AE                ; Row 5, col 14 ($20AE)
     sta bg_update_buf, x
     inx
-
-    ; Tens digit tile
     lda temp1
     clc
     adc #$A0                ; Number tile base
     sta bg_update_buf, x
     inx
+    stx bg_update_byte_idx
+    inc bg_update_count
 
-    ; Ones digit tile
+    ; Ones digit entry
+    ldx bg_update_byte_idx
+    lda #$20
+    sta bg_update_buf, x
+    inx
+    lda #$AF                ; Row 5, col 15 ($20AF)
+    sta bg_update_buf, x
+    inx
     lda temp2
     clc
     adc #$A0
     sta bg_update_buf, x
     inx
-
-    stx bg_update_count
-    inc bg_update_count
+    stx bg_update_byte_idx
     inc bg_update_count
     rts
 

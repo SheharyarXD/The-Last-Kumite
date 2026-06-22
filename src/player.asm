@@ -2,6 +2,10 @@
 ; Physics, state management, animation, rendering
 ; ============================================================================
 
+.include "constants.asm"
+.include "zeropage.asm"
+.include "macros.asm"
+
 .segment "CODE"
 
 ; =============================================================================
@@ -59,7 +63,9 @@ UpdatePlayer:
     lda plr_hitstun
     beq @no_hitstun
     dec plr_hitstun
-    bne @apply_knockback    ; Still in hitstun, apply knockback
+    beq @hitstun_ended       ; Hitstun reached zero this frame
+    jmp @update_physics      ; Still in hitstun: skip straight to physics
+@hitstun_ended:
     ; Hitstun ended
     lda #PLR_IDLE
     sta plr_state
@@ -175,10 +181,11 @@ ApplyPlayerPhysics:
     ; If was jumping, return to idle
     lda plr_state
     cmp #PLR_JUMP
-    bne @y_store
+    bne @landed_done
     lda #PLR_IDLE
     sta plr_state
     jsr PlaySFXLand
+@landed_done:
     jmp @on_ground
 @y_store:
     sta plr_y
@@ -221,32 +228,30 @@ UpdatePlayerAnim:
     sta plr_frametimer
 
     ; Advance animation frame based on state
+    ; NOTE: table holds full 16-bit addresses (.addr), so index = state * 2
     lda plr_state
     asl
     tax
-    lda anim_table_lo, x
+    lda anim_table, x
     sta temp1
-    lda anim_table_hi, x
+    lda anim_table+1, x
     sta temp2
     jmp (temp1)
 
-anim_table_lo:
-    .word AnimIdle      ; PLR_IDLE
-    .word AnimWalk      ; PLR_WALK
-    .word AnimCrouch    ; PLR_CROUCH
-    .word AnimJump      ; PLR_JUMP
-    .word AnimPunch     ; PLR_PUNCH
-    .word AnimKick      ; PLR_KICK
-    .word AnimBlock     ; PLR_BLOCK
-    .word AnimHit       ; PLR_HIT
-    .word AnimKO        ; PLR_KO
-    .word AnimSpecial   ; PLR_SPECIAL
-    .word AnimJumpKick  ; PLR_JUMPKICK
-    .word AnimCPunch    ; PLR_CROUCH_PUNCH
-    .word AnimCKick     ; PLR_CROUCH_KICK
-
-anim_table_hi:
-    .word 0
+anim_table:
+    .addr AnimIdle      ; PLR_IDLE
+    .addr AnimWalk      ; PLR_WALK
+    .addr AnimCrouch    ; PLR_CROUCH
+    .addr AnimJump      ; PLR_JUMP
+    .addr AnimPunch     ; PLR_PUNCH
+    .addr AnimKick      ; PLR_KICK
+    .addr AnimBlock     ; PLR_BLOCK
+    .addr AnimHit       ; PLR_HIT
+    .addr AnimKO        ; PLR_KO
+    .addr AnimSpecial   ; PLR_SPECIAL
+    .addr AnimJumpKick  ; PLR_JUMPKICK
+    .addr AnimCPunch    ; PLR_CROUCH_PUNCH
+    .addr AnimCKick     ; PLR_CROUCH_KICK
 
 ; =============================================================================
 ; ANIMATION HANDLERS
@@ -384,21 +389,32 @@ BuildPlayerHitbox:
     sta plr_hitbox_y1
     sta plr_hitbox_y2
 
+    ; Dispatch on state via jump table (state values 0-12, see constants.asm)
     lda plr_state
-    cmp #PLR_PUNCH
-    beq @punch_hitbox
-    cmp #PLR_KICK
-    beq @kick_hitbox
-    cmp #PLR_JUMP
-    beq @jump_hitbox
-    cmp #PLR_JUMPKICK
-    beq @jump_hitbox
-    cmp #PLR_SPECIAL
-    beq @special_hitbox
-    cmp #PLR_CROUCH_PUNCH
-    beq @cpunch_hitbox
-    cmp #PLR_CROUCH_KICK
-    beq @ckick_hitbox
+    asl
+    tax
+    lda hitbox_jump_table, x
+    sta temp1
+    lda hitbox_jump_table+1, x
+    sta temp2
+    jmp (temp1)
+
+hitbox_jump_table:
+    .addr @no_hitbox        ; PLR_IDLE         (0)
+    .addr @no_hitbox        ; PLR_WALK         (1)
+    .addr @no_hitbox        ; PLR_CROUCH       (2)
+    .addr @jump_hitbox      ; PLR_JUMP         (3)
+    .addr @punch_hitbox     ; PLR_PUNCH        (4)
+    .addr @kick_hitbox      ; PLR_KICK         (5)
+    .addr @no_hitbox        ; PLR_BLOCK        (6)
+    .addr @no_hitbox        ; PLR_HIT          (7)
+    .addr @no_hitbox        ; PLR_KO           (8)
+    .addr @special_hitbox   ; PLR_SPECIAL      (9)
+    .addr @jump_hitbox      ; PLR_JUMPKICK     (10)
+    .addr @cpunch_hitbox    ; PLR_CROUCH_PUNCH (11)
+    .addr @ckick_hitbox     ; PLR_CROUCH_KICK  (12)
+
+@no_hitbox:
     rts
 
 @punch_hitbox:
@@ -576,7 +592,7 @@ RenderPlayer:
     jmp @render_normal
 
 @render_normal:
-    ; Calculate base sprite tile from state + frame
+    ; Calculate sprite tile from state + frame
     lda plr_state
     asl
     asl
@@ -584,22 +600,31 @@ RenderPlayer:
     adc plr_frame
     tax
     lda player_spritemap, x
-    sta temp3               ; Base tile index
+    sta temp3               ; Tile index
 
     ; Get position
     ldx plr_x
     ldy plr_y
 
-    ; Apply hit flash
+    ; Build attribute byte: bit 6 = horizontal flip (face left), bits 0-1 = palette
+    lda #0
+    sta temp4
+    lda plr_dir
+    cmp #DIR_LEFT
+    bne @no_hflip
+    lda #%01000000
+    sta temp4
+@no_hflip:
+
+    ; Apply hit flash (palette 3 = white flash)
     lda hit_flash_timer
     and #2
     beq @no_flash
-    ; White flash: use palette 3
-    lda #$43                ; Tile with palette 3
-    jmp @draw_sprite
+    lda temp4
+    ora #%00000011           ; Force palette 3
+    sta temp4
 @no_flash:
     lda temp3
-@draw_sprite:
     jsr DrawMetasprite
 
     ; Draw stun effect if player stunned
@@ -612,33 +637,9 @@ RenderPlayer:
     rts
 
 ; =============================================================================
-; PLAYER SPRITE MAP
-; Maps (state × 4 + frame) → tile index in CHR
+; PLAYER SPRITE MAP — auto-generated, see tools/chr_convert.py
+; Maps (state x 4 + frame) -> BASE tile index (top-left of a 2x2 16x16
+; metasprite), LOCAL to sprite pattern table 1. The other 3 quadrants are
+; at base+1 (top-right), base+2 (bottom-left), base+3 (bottom-right).
 ; =============================================================================
-player_spritemap:
-    ; PLR_IDLE (0): frames 0-1
-    .byte $00, $04, $00, $00
-    ; PLR_WALK (1): frames 0-3
-    .byte $08, $0C, $10, $14
-    ; PLR_CROUCH (2): frame 0
-    .byte $18, $00, $00, $00
-    ; PLR_JUMP (3): frames 0-1
-    .byte $1C, $20, $00, $00
-    ; PLR_PUNCH (4): frames 0-1
-    .byte $24, $28, $00, $00
-    ; PLR_KICK (5): frames 0-2
-    .byte $2C, $30, $34, $00
-    ; PLR_BLOCK (6): frame 0
-    .byte $38, $00, $00, $00
-    ; PLR_HIT (7): frame 0
-    .byte $3C, $00, $00, $00
-    ; PLR_KO (8): frame 0
-    .byte $40, $00, $00, $00
-    ; PLR_SPECIAL (9): frames 0-3
-    .byte $44, $48, $4C, $50
-    ; PLR_JUMPKICK (10)
-    .byte $54, $58, $00, $00
-    ; PLR_CROUCH_PUNCH (11)
-    .byte $5C, $60, $00, $00
-    ; PLR_CROUCH_KICK (12)
-    .byte $64, $68, $00, $00
+.include "sprite_tiles_player.inc"

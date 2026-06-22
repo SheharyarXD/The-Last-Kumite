@@ -19,16 +19,22 @@ APU_SQ1_VOL  = $4000
 APU_SQ1_SWEEP= $4001
 APU_SQ1_LO   = $4002
 APU_SQ1_HI   = $4003
+APU_SQ1_TIMER= $4002    ; alias: timer low byte (same reg as APU_SQ1_LO)
+APU_SQ1_LEN  = $4003    ; alias: length counter + timer high (same reg as APU_SQ1_HI)
 APU_SQ2_VOL  = $4004
 APU_SQ2_SWEEP= $4005
 APU_SQ2_LO   = $4006
 APU_SQ2_HI   = $4007
+APU_SQ2_TIMER= $4006    ; alias: timer low byte (same reg as APU_SQ2_LO)
+APU_SQ2_LEN  = $4007    ; alias: length counter + timer high (same reg as APU_SQ2_HI)
 APU_TRI_LINEAR= $4008
 APU_TRI_LO   = $400A
 APU_TRI_HI   = $400B
 APU_NOISE_VOL= $400C
 APU_NOISE_LO  = $400E
 APU_NOISE_HI  = $400F
+APU_NOISE_PERIOD = $400E ; alias: noise period/mode (same reg as APU_NOISE_LO)
+APU_NOISE_LEN    = $400F ; alias: length counter load (same reg as APU_NOISE_HI)
 APU_DMC_FREQ  = $4010
 APU_CTRL      = $4015
 APU_FRAME_COUNTER = $4017
@@ -210,3 +216,30 @@ PAL_EFFECT          = 3
 ; MATCH TIMER
 ; =============================================================================
 MATCH_TIME_DEFAULT  = 60  ; 60 seconds
+
+; =============================================================================
+; ENEMY ANIMATION/RENDER STATES (Lightning) — distinct from AI_* behavior states
+; =============================================================================
+EN_STATE_IDLE   = 0
+EN_STATE_WALK   = 1
+EN_STATE_PUNCH  = 2
+EN_STATE_KICK   = 3
+EN_STATE_BLOCK  = 4
+EN_STATE_HIT    = 5
+EN_STATE_KO     = 6
+EN_STATE_DASH   = 7
+EN_STATE_JUMP   = 8
+
+; =============================================================================
+; SFX ID CONSTANTS
+; =============================================================================
+SFX_PUNCH       = 1
+SFX_KICK        = 2
+SFX_HIT         = 3
+SFX_BLOCK       = 4
+SFX_SPECIAL     = 5
+SFX_SPECIAL_HIT = 6
+SFX_JUMP        = 7
+SFX_LAND        = 8
+SFX_KO_DOWN     = 9
+SFX_START       = 10

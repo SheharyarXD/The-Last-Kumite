@@ -32,6 +32,7 @@ pad1_new            = $0011     ; Newly pressed this frame
 pad1_held           = $0012     ; Currently held (working copy)
 pad2_prev           = $0013     ; Controller 2 (unused but read)
 pad2_new            = $0014
+pad2_held           = $0027     ; Currently held (working copy, ctrl 2)
 combo_buffer_idx    = $0015     ; Combo input buffer index (0-7)
 combo_timer         = $0016     ; Frames remaining in combo window
 special_cooldown    = $0017     ; Frames until special reusable
@@ -48,7 +49,12 @@ oam_index           = $0020     ; Next free OAM slot
 nametable           = $0021     ; Current nametable (0 or 1)
 render_flag         = $0022     ; 1 = rendering enabled this frame
 bg_update_ptr       = $0023     ; BG update data pointer (16-bit)
-bg_update_count     = $0024     ; BG tiles to update this frame
+bg_update_count     = $0024     ; BG update ENTRIES pending this frame (3 bytes/entry)
+bg_update_byte_idx  = $0028     ; Next free BYTE offset into bg_update_buf (producer-side)
+temp_quad_left_top  = $0029     ; DrawMetasprite scratch: resolved tile index, top-left cell
+temp_quad_right_top = $002A     ; DrawMetasprite scratch: resolved tile index, top-right cell
+temp_quad_left_bot  = $002B     ; DrawMetasprite scratch: resolved tile index, bottom-left cell
+temp_quad_right_bot = $002C     ; DrawMetasprite scratch: resolved tile index, bottom-right cell
 bg_update_ptr_hi    = $0025
 vs_scroll_pos       = $0026     ; VS screen scroll
 
@@ -204,4 +210,5 @@ OAM_BUF_X           = $0203
 ; =============================================================================
 ; Stores (addr_hi, addr_lo, tile) triplets for PPU updates
 bg_update_buf       = $0300
-MAX_BG_UPDATES      = 10
+MAX_BG_UPDATES      = 32        ; 32 entries x 3 bytes = 96 bytes ($0300-$035F)
+                                 ; Worst case/frame: timer(2)+plr_bar(10)+en_bar(10)+combo(5)=27

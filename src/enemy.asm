@@ -2,6 +2,10 @@
 ; Fast, aggressive, rush-based combat AI with anti-air and dash mechanics
 ; ============================================================================
 
+.include "constants.asm"
+.include "zeropage.asm"
+.include "macros.asm"
+
 .segment "CODE"
 
 ; =============================================================================
@@ -157,28 +161,26 @@ RunLightningAI:
 
 @ai_skip_decision:
     ; Execute current AI state
+    ; NOTE: table holds full 16-bit addresses (.addr), so index = state * 2
     lda en_ai_state
     asl
     tax
-    lda ai_handler_lo, x
+    lda ai_handler_table, x
     sta temp1
-    lda ai_handler_hi, x
+    lda ai_handler_table+1, x
     sta temp2
     jmp (temp1)
 
-ai_handler_lo:
-    .word AIHIdle
-    .word AIHApproach
-    .word AIHAttack
-    .word AIHRetreat
-    .word AIHAntiAir
-    .word AIHBlock
-    .word AIHStunned
-    .word AIHDash
-    .word AIHKO
-
-ai_handler_hi:
-    .word 0
+ai_handler_table:
+    .addr AIHIdle
+    .addr AIHApproach
+    .addr AIHAttack
+    .addr AIHRetreat
+    .addr AIHAntiAir
+    .addr AIHBlock
+    .addr AIHStunned
+    .addr AIHDash
+    .addr AIHKO
 
 ; =============================================================================
 ; LIGHTNING DECISION — Choose next AI behavior
@@ -187,7 +189,9 @@ LightningDecision:
     ; If KO'd, do nothing
     lda en_state
     cmp #EN_STATE_KO
-    beq @decision_done
+    bne @not_ko
+    jmp @decision_done
+@not_ko:
 
     ; Check aggro mode (HP < 30% = 24)
     lda en_hp
@@ -654,15 +658,25 @@ BuildEnemyHitbox:
     sta en_hitbox_y1
     sta en_hitbox_y2
 
+    ; Dispatch on attack type via jump table (ATK_* values 0-5, see constants.asm)
     lda en_atk_type
-    cmp #ATK_PUNCH
-    beq @en_punch_box
-    cmp #ATK_KICK
-    beq @en_kick_box
-    cmp #ATK_DASH
-    beq @en_dash_box
-    cmp #ATK_JUMP
-    beq @en_antiair_box
+    asl
+    tax
+    lda en_hitbox_jump_table, x
+    sta temp1
+    lda en_hitbox_jump_table+1, x
+    sta temp2
+    jmp (temp1)
+
+en_hitbox_jump_table:
+    .addr @en_no_box        ; ATK_NONE    (0)
+    .addr @en_punch_box     ; ATK_PUNCH   (1)
+    .addr @en_kick_box      ; ATK_KICK    (2)
+    .addr @en_antiair_box   ; ATK_JUMP    (3)
+    .addr @en_no_box        ; ATK_SPECIAL (4) — Lightning has no special
+    .addr @en_dash_box      ; ATK_DASH    (5)
+
+@en_no_box:
     rts
 
 @en_punch_box:
@@ -783,7 +797,7 @@ RenderEnemy:
     cmp #EN_STATE_KO
     bne @en_render_normal
 @en_render_normal:
-    ; Calculate base tile from state + frame
+    ; Calculate tile from state + frame
     lda en_state
     asl
     asl
@@ -796,15 +810,27 @@ RenderEnemy:
     ldx en_x
     ldy en_y
 
-    ; Hit flash
+    ; Build attribute byte: bit 6 = horizontal flip (face left), bits 0-1 =
+    ; palette (1 = Lightning's blue palette, see init.asm sprite palette 1)
+    lda #%00000001
+    sta temp4
+    lda en_dir
+    cmp #DIR_LEFT
+    bne @en_no_hflip
+    lda temp4
+    ora #%01000000
+    sta temp4
+@en_no_hflip:
+
+    ; Hit flash (palette 3 = white flash)
     lda hit_flash_timer
     and #2
     beq @en_no_flash
-    lda #$43
-    jmp @en_draw
+    lda temp4
+    ora #%00000011
+    sta temp4
 @en_no_flash:
     lda temp3
-@en_draw:
     jsr DrawMetasprite
 
     ; Draw stun effect if stunned
@@ -817,37 +843,9 @@ RenderEnemy:
     rts
 
 ; =============================================================================
-; ENEMY SPRITE MAP
+; ENEMY SPRITE MAP — auto-generated, see tools/chr_convert.py
+; Maps (state x 4 + frame) -> BASE tile index (top-left of a 2x2 16x16
+; metasprite), LOCAL to sprite pattern table 1.
 ; =============================================================================
-enemy_spritemap:
-    ; EN_STATE_IDLE (0): frames 0-1
-    .byte $80, $84, $00, $00
-    ; EN_STATE_WALK (1): frames 0-3
-    .byte $88, $8C, $90, $94
-    ; EN_STATE_PUNCH (2): frames 0-1
-    .byte $98, $9C, $00, $00
-    ; EN_STATE_KICK (3): frames 0-2
-    .byte $A0, $A4, $A8, $00
-    ; EN_STATE_BLOCK (4): frame 0
-    .byte $AC, $00, $00, $00
-    ; EN_STATE_HIT (5): frame 0
-    .byte $B0, $00, $00, $00
-    ; EN_STATE_KO (6): frame 0
-    .byte $B4, $00, $00, $00
-    ; EN_STATE_DASH (7): frames 0-1
-    .byte $B8, $BC, $00, $00
-    ; EN_STATE_JUMP (8): frame 0
-    .byte $C0, $00, $00, $00
-
-; =============================================================================
-; ENEMY STATE CONSTANTS (local to enemy)
-; =============================================================================
-EN_STATE_IDLE   = 0
-EN_STATE_WALK   = 1
-EN_STATE_PUNCH  = 2
-EN_STATE_KICK   = 3
-EN_STATE_BLOCK  = 4
-EN_STATE_HIT    = 5
-EN_STATE_KO     = 6
-EN_STATE_DASH   = 7
-EN_STATE_JUMP   = 8
+.include "sprite_tiles_enemy.inc"
+; (EN_STATE_* constants live in constants.asm for cross-module visibility)

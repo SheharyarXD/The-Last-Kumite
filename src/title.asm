@@ -2,6 +2,10 @@
 ; Background text rendering + decorative elements
 ; ============================================================================
 
+.include "constants.asm"
+.include "zeropage.asm"
+.include "macros.asm"
+
 .segment "CODE"
 
 ; =============================================================================

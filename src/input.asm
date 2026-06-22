@@ -2,6 +2,10 @@
 ; Controller polling, debounce handling, combo detection
 ; ============================================================================
 
+.include "constants.asm"
+.include "zeropage.asm"
+.include "macros.asm"
+
 .segment "CODE"
 
 ; =============================================================================
@@ -180,18 +184,26 @@ CheckSpecialMove:
 ProcessPlayerInput:
     ; Skip if player is in hitstun, KO, or stunned
     lda plr_hitstun
-    bne @input_done
+    beq @not_hitstun
+    jmp @input_done
+@not_hitstun:
     lda plr_stunned
-    bne @input_done
+    beq @not_stunned
+    jmp @input_done
+@not_stunned:
     lda plr_state
     cmp #PLR_KO
-    beq @input_done
+    bne @not_ko
+    jmp @input_done
+@not_ko:
 
     ; --- Check special move first ---
     jsr CheckSpecialMove
     bcc @no_special_input
 
     ; Execute special move!
+    lda #SPECIAL_COOLDOWN
+    sta special_cooldown
     lda #PLR_SPECIAL
     sta plr_state
     lda #30                 ; 30 frames special animation
@@ -216,7 +228,9 @@ ProcessPlayerInput:
 
     ; If paused, ignore all other input
     lda pause_flag
-    bne @input_done
+    beq @not_paused
+    jmp @input_done
+@not_paused:
 
     ; --- Directional input ---
     lda pad1_held
@@ -224,12 +238,16 @@ ProcessPlayerInput:
 
     ; Check crouch (DOWN)
     and #BTN_DOWN
-    bne @do_crouch
+    beq @not_crouch_input
+    jmp @do_crouch
+@not_crouch_input:
 
     ; Check jump (UP)
     lda temp1
     and #BTN_UP
-    bne @do_jump
+    beq @not_jump_input
+    jmp @do_jump
+@not_jump_input:
 
     ; Check left/right movement
     lda temp1
@@ -310,7 +328,7 @@ ProcessPlayerInput:
     beq @check_attacks      ; Can't jump if airborne
     lda #PLR_JUMP
     sta plr_state
-    lda #JUMP_VELOCITY
+    lda #<JUMP_VELOCITY
     sta plr_vel_y
     lda #0
     sta plr_grounded
@@ -332,7 +350,9 @@ ProcessPlayerInput:
 @do_block:
     lda plr_state
     cmp #PLR_BLOCK
-    beq @input_done
+    bne @start_block
+    jmp @input_done
+@start_block:
     lda #PLR_BLOCK
     sta plr_state
     lda #0
@@ -343,9 +363,13 @@ ProcessPlayerInput:
 @check_attacks:
     ; Check if already in an attack
     lda plr_cooldown
-    bne @input_done
+    beq @no_cooldown_block
+    jmp @input_done
+@no_cooldown_block:
     lda plr_atk_active
-    bne @input_done
+    beq @no_atk_active_block
+    jmp @input_done
+@no_atk_active_block:
 
     ; Check B button (Kick)
     lda pad1_new

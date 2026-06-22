@@ -2,6 +2,10 @@
 ; RESET handler — First code executed on power-on/reset
 ; ============================================================================
 
+.include "constants.asm"
+.include "zeropage.asm"
+.include "macros.asm"
+
 .segment "CODE"
 
 ; =============================================================================
@@ -64,9 +68,10 @@ RESET:
     ; -------------------------------------------------------------------------
     ; Set default PPU registers
     ; -------------------------------------------------------------------------
-    lda #0
-    sta PPU_CTRL            ; NMI off, sprites from $1000, BG from $0000
+    lda #PPUCTRL_SPR_PT     ; NMI off, sprites from $1000, BG from $0000
+    sta PPU_CTRL
     sta ppu_ctrl_cache
+    lda #0
     sta PPU_MASK            ; Rendering off
     sta ppu_mask_cache
     sta PPU_SCROLL          ; Scroll X = 0
@@ -83,9 +88,8 @@ RESET:
     lda #STATE_TITLE
     sta gamestate
     sta next_gamestate
-    lda #1
-    sta state_initialized
     lda #0
+    sta state_initialized   ; Force InitCurrentState (InitTitle) to run on first frame
     sta pause_flag
     sta framecounter
     sta framecounter_hi
@@ -98,17 +102,16 @@ RESET:
     sta rand_seed
 
     ; -------------------------------------------------------------------------
-    ; Initialize PPU for display
+    ; Enable NMI generation BEFORE waiting for it, otherwise the CPU would
+    ; spin forever waiting for an interrupt that can never fire.
+    ; Rendering itself is turned on later by each state's Init handler,
+    ; once it has finished writing to the PPU safely.
     ; -------------------------------------------------------------------------
-    WAIT_NMI
-
-    ; Enable NMI
-    lda #PPUCTRL_NMI
+    lda #(PPUCTRL_NMI | PPUCTRL_SPR_PT)
     sta PPU_CTRL
     sta ppu_ctrl_cache
 
-    ; Turn on rendering
-    RENDER_ON
+    WAIT_NMI
 
     ; Jump to main game loop (never returns)
     jmp MainLoop
@@ -147,8 +150,8 @@ default_palette:
     ; Sprite palettes ($3F10-$3F1F)
     .byte $0F               ; $3F10 Sprite 0 transparent
     .byte $16, $27, $37     ; $3F11-$3F13 SPR0: Michael (red gi)
-    .byte $0F
-    .byte $14, $24, $34     ; $3F15-$3F17 SPR1: Lightning (blue)
+    .byte $0F               ; $3F14 (transparent slot for SPR1 group)
+    .byte $02, $12, $22     ; $3F15-$3F17 SPR1: Lightning (blue gi)
     .byte $0F
     .byte $18, $28, $38     ; $3F19-$3F1B SPR2: Effects (yellow)
     .byte $0F

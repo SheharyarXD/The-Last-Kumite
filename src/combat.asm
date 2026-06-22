@@ -2,6 +2,10 @@
 ; Hit detection, damage, knockback, blocking, combo counting
 ; ============================================================================
 
+.include "constants.asm"
+.include "zeropage.asm"
+.include "macros.asm"
+
 .segment "CODE"
 
 ; =============================================================================
@@ -46,13 +50,19 @@ UpdateCombat:
 CheckPlayerHitEnemy:
     ; Player must have active hitbox
     lda plr_atk_active
-    beq @plr_miss
+    bne @plr_active
+    jmp @plr_miss
+@plr_active:
     lda plr_atk_hit
-    bne @plr_miss           ; Already hit this attack
+    beq @plr_not_yet_hit    ; Already hit this attack
+    jmp @plr_miss
+@plr_not_yet_hit:
 
     ; Check if hitbox overlaps enemy hurtbox
     jsr CheckHitboxOverlap
-    bcc @plr_miss           ; No overlap
+    bcs @plr_overlap         ; Overlap confirmed
+    jmp @plr_miss
+@plr_overlap:
 
     ; HIT! Mark attack as connected
     lda #1
@@ -60,12 +70,16 @@ CheckPlayerHitEnemy:
 
     ; Check if enemy is blocking
     lda en_block
-    bne @en_blocked
+    beq @plr_not_blocked
+    jmp @en_blocked
+@plr_not_blocked:
 
     ; --- Apply damage ---
     lda plr_atk_type
     cmp #ATK_SPECIAL
-    beq @plr_special_hit
+    bne @plr_normal_hit
+    jmp @plr_special_hit
+@plr_normal_hit:
 
     ; Normal damage
     lda plr_dmg_accum
@@ -267,13 +281,19 @@ CheckPlayerHitEnemy:
 CheckEnemyHitPlayer:
     ; Enemy must have active hitbox
     lda en_atk_active
-    beq @en_miss
+    bne @en_active
+    jmp @en_miss
+@en_active:
     lda en_atk_hit
-    bne @en_miss
+    beq @en_not_yet_hit
+    jmp @en_miss
+@en_not_yet_hit:
 
     ; Check if hitbox overlaps player hurtbox
     jsr CheckEnemyHitboxOverlap
-    bcc @en_miss
+    bcs @en_overlap
+    jmp @en_miss
+@en_overlap:
 
     ; HIT!
     lda #1
@@ -281,7 +301,9 @@ CheckEnemyHitPlayer:
 
     ; Check if player is blocking
     lda plr_block
-    bne @plr_blocked
+    beq @en_not_blocked
+    jmp @plr_blocked
+@en_not_blocked:
 
     ; --- Apply damage ---
     lda en_atk_type

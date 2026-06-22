@@ -2,6 +2,10 @@
 ; State transition management and shared state logic
 ; ============================================================================
 
+.include "constants.asm"
+.include "zeropage.asm"
+.include "macros.asm"
+
 .segment "CODE"
 
 ; =============================================================================
@@ -15,10 +19,6 @@ InitTitle:
     lda #0
     sta nametable
     jsr ClearNametable
-
-    ; Set background color to black
-    lda #$0F
-    sta PPU_DATA
 
     ; Draw "THE LAST KUMITE" title
     SET_PTR text_ptr_lo, title_text
@@ -84,10 +84,7 @@ HandleTitle:
     rts
 
 ; ---- Render ----
-.export RenderTitle
-RenderTitle:
-    ; Title uses background text, no sprites needed
-    rts
+; (RenderTitle implementation lives in title.asm)
 
 ; =============================================================================
 ; STATE: INTRO STORY TEXT
@@ -96,21 +93,28 @@ RenderTitle:
 ; ---- Init ----
 .export InitIntro
 InitIntro:
+    RENDER_OFF
+
     lda #0
     sta text_page
     sta text_scroll_y
     lda #4                  ; 4 pages of story text
     sta text_total_pages
-    sta text_state          ; Start typing
+    lda #1                  ; Start typing
+    sta text_state
     lda #TEXT_SPEED
     sta text_delay
     sta text_timer
 
     ; Clear nametable
+    lda #0
+    sta nametable
     jsr ClearNametable
 
     ; Load first page
     jsr LoadStoryPage
+
+    RENDER_ON
     rts
 
 ; ---- Handler ----
@@ -184,10 +188,7 @@ HandleIntro:
     rts
 
 ; ---- Render ----
-.export RenderIntro
-RenderIntro:
-    ; Intro uses background text rendering
-    rts
+; (RenderIntro implementation lives in intro.asm)
 
 ; =============================================================================
 ; STATE: VS SCREEN
@@ -196,7 +197,11 @@ RenderIntro:
 ; ---- Init ----
 .export InitVS
 InitVS:
+    RENDER_OFF
+
     ; Clear screen
+    lda #0
+    sta nametable
     jsr ClearNametable
 
     ; Draw "VS" in center
@@ -230,6 +235,8 @@ InitVS:
     ; Position VS sprites (character portraits or silhouettes)
     lda #0
     sta vs_scroll_pos
+
+    RENDER_ON
     rts
 
 ; ---- Handler ----
@@ -243,10 +250,7 @@ HandleVS:
     rts
 
 ; ---- Render ----
-.export RenderVS
-RenderVS:
-    ; VS screen uses BG text + possible character sprites
-    rts
+; (RenderVS implementation lives in vs_screen.asm)
 
 ; =============================================================================
 ; STATE: WIN
@@ -255,7 +259,11 @@ RenderVS:
 ; ---- Init ----
 .export InitWin
 InitWin:
+    RENDER_OFF
+
     ; Clear screen
+    lda #0
+    sta nametable
     jsr ClearNametable
 
     ; Draw victory text
@@ -276,6 +284,8 @@ InitWin:
 
     lda #0
     sta state_timer
+
+    RENDER_ON
     rts
 
 ; ---- Handler ----
@@ -324,12 +334,16 @@ HandleLose:
 ; ---- Init ----
 .export InitGameOver
 InitGameOver:
+    RENDER_OFF
+
     ; Pick random death type (0-3)
     RANDOM_A
     and #3
     sta death_type
 
     ; Clear screen
+    lda #0
+    sta nametable
     jsr ClearNametable
 
     ; Draw "GAME OVER"
@@ -373,6 +387,8 @@ InitGameOver:
 
     lda #0
     sta state_timer
+
+    RENDER_ON
     rts
 
 ; ---- Handler ----
@@ -387,9 +403,7 @@ HandleGameOver:
     rts
 
 ; ---- Render ----
-.export RenderGameOver
-RenderGameOver:
-    rts
+; (RenderGameOver implementation lives in gameover.asm)
 
 ; =============================================================================
 ; HELPER FUNCTIONS
@@ -434,7 +448,7 @@ TypeNextChar:
     sta temp2
 
     ; Queue BG update
-    ldx bg_update_count
+    ldx bg_update_byte_idx
     lda temp2
     sta bg_update_buf, x
     inx
@@ -469,9 +483,8 @@ TypeNextChar:
 @tc_store:
     sta bg_update_buf, x
     inx
-    stx bg_update_count
-    inc bg_update_count
-    inc bg_update_count
+    stx bg_update_byte_idx
+    inc bg_update_count      ; One more 3-byte entry queued
 
     ; Advance X position
     inc text_x_pos

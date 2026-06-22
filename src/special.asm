@@ -2,6 +2,10 @@
 ; Perfect Guard Counter: ↓ + B + A
 ; ============================================================================
 
+.include "constants.asm"
+.include "zeropage.asm"
+.include "macros.asm"
+
 .segment "CODE"
 
 ; =============================================================================

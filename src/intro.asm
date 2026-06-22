@@ -1,6 +1,10 @@
 ; THE LAST KUMITE — Intro Story Text Renderer
 ; ============================================================================
 
+.include "constants.asm"
+.include "zeropage.asm"
+.include "macros.asm"
+
 .segment "CODE"
 
 ; =============================================================================

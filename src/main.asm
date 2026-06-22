@@ -2,6 +2,10 @@
 ; Central execution flow: NMI wait → Input → Update → Render
 ; ============================================================================
 
+.include "constants.asm"
+.include "zeropage.asm"
+.include "macros.asm"
+
 .segment "CODE"
 
 ; =============================================================================

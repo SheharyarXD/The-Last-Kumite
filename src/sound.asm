@@ -2,6 +2,10 @@
 ; Simple square wave SFX, no music engine (scope-limited)
 ; ============================================================================
 
+.include "constants.asm"
+.include "zeropage.asm"
+.include "macros.asm"
+
 .segment "CODE"
 
 ; =============================================================================
@@ -52,27 +56,30 @@ UpdateSound:
 ; =============================================================================
 StartSFX:
     lda sfx_queue_type
-    cmp #SFX_PUNCH
-    beq @sfx_punch
-    cmp #SFX_KICK
-    beq @sfx_kick
-    cmp #SFX_HIT
-    beq @sfx_hit
-    cmp #SFX_BLOCK
-    beq @sfx_block
-    cmp #SFX_SPECIAL
-    beq @sfx_special
-    cmp #SFX_SPECIAL_HIT
-    beq @sfx_special_hit
-    cmp #SFX_JUMP
-    beq @sfx_jump
-    cmp #SFX_LAND
-    beq @sfx_land
-    cmp #SFX_KO_DOWN
-    beq @sfx_ko_down
-    cmp #SFX_START
-    beq @sfx_start
+    beq @sfx_rts            ; 0 = no SFX queued
+    sec
+    sbc #1                  ; SFX IDs are 1-based; convert to 0-based index
+    asl                      ; ×2 for word-sized table entries
+    tax
+    lda sfx_jump_table, x
+    sta temp1
+    lda sfx_jump_table+1, x
+    sta temp2
+    jmp (temp1)
+@sfx_rts:
     rts
+
+sfx_jump_table:
+    .addr @sfx_punch        ; SFX_PUNCH       (1)
+    .addr @sfx_kick         ; SFX_KICK        (2)
+    .addr @sfx_hit          ; SFX_HIT         (3)
+    .addr @sfx_block        ; SFX_BLOCK       (4)
+    .addr @sfx_special      ; SFX_SPECIAL     (5)
+    .addr @sfx_special_hit  ; SFX_SPECIAL_HIT (6)
+    .addr @sfx_jump         ; SFX_JUMP        (7)
+    .addr @sfx_land         ; SFX_LAND        (8)
+    .addr @sfx_ko_down      ; SFX_KO_DOWN     (9)
+    .addr @sfx_start        ; SFX_START       (10)
 
 ; ---- Punch: Short noise burst ----
 @sfx_punch:
@@ -321,17 +328,4 @@ PlaySFXStart:
     lda #SFX_START
     sta sfx_queue_type
     rts
-
-; =============================================================================
-; SFX ID CONSTANTS
-; =============================================================================
-SFX_PUNCH       = 1
-SFX_KICK        = 2
-SFX_HIT         = 3
-SFX_BLOCK       = 4
-SFX_SPECIAL     = 5
-SFX_SPECIAL_HIT = 6
-SFX_JUMP        = 7
-SFX_LAND        = 8
-SFX_KO_DOWN     = 9
-SFX_START       = 10
+; (SFX ID constants moved to constants.asm for cross-module visibility)

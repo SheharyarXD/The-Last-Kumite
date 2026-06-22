@@ -2,6 +2,11 @@
 ; Main gameplay: initialization, update, and render for the fight scene
 ; ============================================================================
 
+.include "constants.asm"
+.include "zeropage.asm"
+.include "macros.asm"
+.include "stage_bg.inc"
+
 .segment "CODE"
 
 ; =============================================================================
@@ -46,7 +51,6 @@ InitFight:
     lda #0
     sta state_timer
     sta pause_flag
-    sta next_gamestate
 
     ; Scroll position
     lda #0
@@ -216,60 +220,59 @@ CheckSpecialInput:
 ; LOAD FIGHT STAGE — Setup background for outdoor fighting arena
 ; =============================================================================
 LoadFightStage:
-    ; Clear nametable
+    ; Clear nametable first (also resets attribute table to palette 0)
     lda #0
     sta nametable
     jsr ClearNametable
 
-    ; Draw ground line (row 20-21 = tiles $40-$5F in nametable)
-    PPU_SETADDR $2280       ; Row 20
-    ldx #0
-@ground_row1:
-    lda #$10                ; Ground tile
-    sta PPU_DATA
-    inx
-    cpx #32
-    bcc @ground_row1
-
-    PPU_SETADDR $22A0       ; Row 21
-    ldx #0
-@ground_row2:
-    lda #$11                ; Ground detail tile
-    sta PPU_DATA
-    inx
-    cpx #32
-    bcc @ground_row2
-
-    ; Draw sky gradient (rows 0-15)
+    ; Stream the converted background nametable (32x28 tiles = 896 bytes).
+    ; X alone can't count to 896, so use a 16-bit counter in temp1:temp2
+    ; (low:high) and index via (ptr),y-style indirect addressing instead.
     PPU_SETADDR $2000
+    lda #<stage_nametable
+    sta text_ptr_lo
+    lda #>stage_nametable
+    sta text_ptr_hi
+    lda #0
+    sta temp1                ; low byte of 896-byte counter
+    sta temp2                ; high byte
+@stage_loop:
+    ldy #0
+    lda (text_ptr_lo), y
+    sta PPU_DATA
+    ; advance pointer
+    inc text_ptr_lo
+    bne @stage_no_carry
+    inc text_ptr_hi
+@stage_no_carry:
+    ; advance 16-bit byte counter, stop at 896 ($0380)
+    inc temp1
+    bne @stage_check
+    inc temp2
+@stage_check:
+    lda temp2
+    cmp #>896
+    bcc @stage_loop
+    bne @stage_done
+    lda temp1
+    cmp #<896
+    bcc @stage_loop
+@stage_done:
+
+    ; Set attribute table: select palette 1 (BG1: ground earth tones,
+    ; genuinely olive/brown) for the whole stage, matching the palette
+    ; these tiles were designed to look correct against.
+    PPU_SETADDR $23C0
     ldx #0
-@sky_loop:
-    lda #$12                ; Sky tile (varies for gradient effect)
+@attr_loop:
+    lda #%01010101
     sta PPU_DATA
     inx
-    cpx #192                ; 6 rows of sky
-    bcc @sky_loop
-
-    ; Draw some background details (simple wall/building)
-    PPU_SETADDR $2100       ; Row 8
-    ldx #8
-@wall_top:
-    lda #$13                ; Wall top tile
-    sta PPU_DATA
-    inx
-    cpx #24
-    bcc @wall_top
-
-    PPU_SETADDR $2120       ; Row 9
-    ldx #8
-@wall_mid:
-    lda #$14                ; Wall mid tile
-    sta PPU_DATA
-    inx
-    cpx #24
-    bcc @wall_mid
+    cpx #64
+    bcc @attr_loop
 
     rts
+
 
 ; =============================================================================
 ; FIGHT TEXT DATA

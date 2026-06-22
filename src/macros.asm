@@ -22,10 +22,10 @@
     sta PPU_ADDR
 .endmacro
 
-.macro PPU_SETSCROLL x, y
-    lda x
+.macro PPU_SETSCROLL scroll_x_val, scroll_y_val
+    lda scroll_x_val
     sta PPU_SCROLL
-    lda y
+    lda scroll_y_val
     sta PPU_SCROLL
 .endmacro
 
@@ -172,13 +172,11 @@
 ; =============================================================================
 .macro RANDOM_A
     lda rand_seed
-    beq @do_eor
+    beq :+
     asl
-    bcc @no_eor
-@do_eor:
-    eor #$1D
-@no_eor:
-    sta rand_seed
+    bcc :++
+:   eor #$1D
+:   sta rand_seed
 .endmacro
 
 ; =============================================================================

@@ -2,6 +2,11 @@
 ; Handles all rendering: sprite OAM, background tiles, nametable updates
 ; ============================================================================
 
+.include "constants.asm"
+.include "zeropage.asm"
+.include "macros.asm"
+.include "sprite_tiles_const.inc"
+
 .segment "CODE"
 
 ; =============================================================================
@@ -106,6 +111,8 @@ ProcessBGUpdates:
     inx
     dec bg_update_count
     bne @bg_update_loop
+    lda #0
+    sta bg_update_byte_idx  ; Reset write offset for next frame's queue
     rts
 
 ; =============================================================================
@@ -277,7 +284,7 @@ DrawTextBuffered:
     beq @buf_done
 
     ; Store PPU address (high then low)
-    ldx bg_update_count
+    ldx bg_update_byte_idx
     lda temp2
     sta bg_update_buf, x
     inx
@@ -312,9 +319,8 @@ DrawTextBuffered:
 @bn_store:
     sta bg_update_buf, x
     inx
-    stx bg_update_count
-    inc bg_update_count
-    inc bg_update_count
+    stx bg_update_byte_idx
+    inc bg_update_count      ; One more 3-byte entry queued
 
     ldy temp3
     iny
@@ -327,169 +333,128 @@ DrawTextBuffered:
 @buf_done:
     rts
 
-; =============================================================================
-; UPDATE HEALTH BAR — Draw health bar tiles to nametable
-; =============================================================================
-; Input: A = health value (0-100), X = bar position (0=player, 1=enemy)
-.export UpdateHealthBar
-UpdateHealthBar:
-    sta temp3               ; Save health value
-    stx temp4               ; Save which bar
-
-    ; Cap at 100
-    cmp #101
-    bcc @health_ok
-    lda #100
-    sta temp3
-@health_ok:
-
-    ; Calculate filled tiles (10 tiles max = 100 HP / 10)
-    lda temp3
-    lsr                     ; Divide by 10
-    lsr
-    ; Actually, let's do repeated subtraction for /10
-    ldx #0
-@div10:
-    cmp #10
-    bcc @div10_done
-    sec
-    sbc #10
-    inx
-    jmp @div10
-@div10_done:
-    stx temp1               ; Number of filled tiles
-    sta temp2               ; Remainder (for partial tile)
-
-    ; Determine bar screen position
-    lda temp4
-    bne @enemy_bar
-    ; Player bar: tiles at (3, 3) to (12, 3)
-    lda #$20
-    sta bg_update_buf
-    lda #$83                ; $2083 = row 3, col 3
-    jmp @bar_pos_set
-@enemy_bar:
-    ; Enemy bar: tiles at (19, 3) to (28, 3)
-    lda #$20
-    sta bg_update_buf
-    lda #$93                ; $2093 = row 3, col 19
-@bar_pos_set:
-    sta bg_update_buf + 1
-
-    ; Write filled tiles ($03 = full bar segment)
-    ldx temp1
-    beq @no_fill
-    ldy #0
-@fill_loop:
-    lda #$03                ; Full bar tile
-    sta bg_update_buf + 2, y
-    iny
-    dex
-    bne @fill_loop
-@no_fill:
-
-    ; Write empty tiles ($02 = empty bar segment)
-    lda #10
-    sec
-    sbc temp1
-    tax
-    beq @no_empty
-@empty_loop:
-    lda #$02                ; Empty bar tile
-    sta bg_update_buf + 2, y
-    iny
-    dex
-    bne @empty_loop
-@no_empty:
-
-    ; Set update count: 10 tiles × 3 bytes each (addr_hi, addr_lo, tile)
-    lda #10
-    sta bg_update_count
-    rts
+; (UpdateHealthBar removed: it was dead code, never called, and used an
+;  incompatible buffer format. See DrawPlayerBar/DrawEnemyBar in hud.asm.)
 
 ; =============================================================================
-; DRAW METASPRITE — Draw a 2×2 tile character sprite to OAM
+; DRAW METASPRITE — Draw a 2x2 (16x16) character sprite to OAM
 ; =============================================================================
-; Input: A = base tile index, X = screen X, Y = screen Y
-;        plr_dir = facing direction (affects horizontal flip)
+; Input: A = BASE tile index (top-left quadrant, LOCAL to sprite pattern
+;        table 1), X = screen X (left edge), Y = screen Y (top edge),
+;        temp4 = OAM attribute byte (palette bits + flip bits). Caller sets
+;        temp4 before calling — see RenderPlayer/RenderEnemy for the
+;        horizontal-flip convention (bit 6 of temp4 set = facing left).
+; Tile layout (consecutive from the base index): +0 top-left, +1 top-right,
+; +2 bottom-left, +3 bottom-right — see tools/chr_convert.py.
 .export DrawMetasprite
 DrawMetasprite:
-    stx temp1               ; X position
-    sty temp2               ; Y position
-    sta temp3               ; Base tile
+    stx temp1               ; X position (left edge)
+    sty temp2                ; Y position (top edge)
+    sta temp3                ; Base tile index
 
-    ; Palette bits in attributes
-    lda #0
-    sta temp4
-
-    ; Check if OAM is full
+    ; Check if OAM has room for 4 more sprites (16 bytes) without wrapping
     lda oam_index
-    cmp #(64 * 4)
-    bcs @ms_done            ; OAM full, skip
+    cmp #240                ; 256 - 16 = 240
+    bcc @ms_room
+    rts
+@ms_room:
 
-    ldx oam_index           ; X = OAM write index
+    ldx oam_index
 
-    ; --- Row 0 ---
-    ; Tile (0,0): top-left
-    lda temp2
-    sta OAM_BUF, x          ; Y
-    inx
-    lda temp3
-    sta OAM_BUF, x          ; Tile
-    inx
+    ; Determine left/right quadrant order: normally TL=+0/TR=+1 on the
+    ; left/right respectively; horizontally flipped, swap which tile goes
+    ; on which side (the hardware flip bit mirrors each tile's own pixels,
+    ; but the two halves must also swap positions or the sprite would show
+    ; its right-side art on the left and vice versa).
     lda temp4
-    sta OAM_BUF, x          ; Attributes (palette 0, no flip)
-    inx
-    lda temp1
-    sta OAM_BUF, x          ; X
-    inx
-
-    ; Tile (1,0): top-right
-    lda temp2
-    sta OAM_BUF, x
-    inx
+    and #%01000000
+    beq @ms_not_flipped
+    ; Flipped: left column shows tile +1/+3, right column shows tile +0/+2
     lda temp3
     clc
     adc #1
-    sta OAM_BUF, x
-    inx
-    lda temp4
-    sta OAM_BUF, x
-    inx
-    lda temp1
-    clc
-    adc #8
-    sta OAM_BUF, x
-    inx
-
-    ; --- Row 1 ---
-    ; Tile (0,1): bottom-left
-    lda temp2
-    clc
-    adc #8
-    sta OAM_BUF, x
-    inx
+    sta temp_quad_left_top
     lda temp3
-    clc
-    adc #2
-    sta OAM_BUF, x
-    inx
-    lda temp4
-    sta OAM_BUF, x
-    inx
-    lda temp1
-    sta OAM_BUF, x
-    inx
-
-    ; Tile (1,1): bottom-right
-    lda temp2
-    clc
-    adc #8
-    sta OAM_BUF, x
-    inx
+    sta temp_quad_right_top
     lda temp3
     clc
     adc #3
+    sta temp_quad_left_bot
+    lda temp3
+    clc
+    adc #2
+    sta temp_quad_right_bot
+    jmp @ms_quads_set
+@ms_not_flipped:
+    lda temp3
+    sta temp_quad_left_top
+    lda temp3
+    clc
+    adc #1
+    sta temp_quad_right_top
+    lda temp3
+    clc
+    adc #2
+    sta temp_quad_left_bot
+    lda temp3
+    clc
+    adc #3
+    sta temp_quad_right_bot
+@ms_quads_set:
+
+    ; --- Top-left ---
+    lda temp2
+    sta OAM_BUF, x
+    inx
+    lda temp_quad_left_top
+    sta OAM_BUF, x
+    inx
+    lda temp4
+    sta OAM_BUF, x
+    inx
+    lda temp1
+    sta OAM_BUF, x
+    inx
+
+    ; --- Top-right ---
+    lda temp2
+    sta OAM_BUF, x
+    inx
+    lda temp_quad_right_top
+    sta OAM_BUF, x
+    inx
+    lda temp4
+    sta OAM_BUF, x
+    inx
+    lda temp1
+    clc
+    adc #8
+    sta OAM_BUF, x
+    inx
+
+    ; --- Bottom-left ---
+    lda temp2
+    clc
+    adc #8
+    sta OAM_BUF, x
+    inx
+    lda temp_quad_left_bot
+    sta OAM_BUF, x
+    inx
+    lda temp4
+    sta OAM_BUF, x
+    inx
+    lda temp1
+    sta OAM_BUF, x
+    inx
+
+    ; --- Bottom-right ---
+    lda temp2
+    clc
+    adc #8
+    sta OAM_BUF, x
+    inx
+    lda temp_quad_right_bot
     sta OAM_BUF, x
     inx
     lda temp4
@@ -527,7 +492,7 @@ DrawHitEffect:
     sbc #4
     sta OAM_BUF, x          ; Y (top)
     inx
-    lda #$80                ; Impact tile (top)
+    lda #EFFECT_TILE_BASE+0 ; Impact tile (top)
     sta OAM_BUF, x
     inx
     lda #%00000010          ; Palette 2
@@ -542,7 +507,7 @@ DrawHitEffect:
     adc #4
     sta OAM_BUF, x          ; Y (bottom)
     inx
-    lda #$81
+    lda #EFFECT_TILE_BASE+1
     sta OAM_BUF, x
     inx
     lda #%10000010          ; Palette 2, flip V
@@ -555,7 +520,7 @@ DrawHitEffect:
     lda temp1
     sta OAM_BUF, x          ; Y (center)
     inx
-    lda #$82
+    lda #EFFECT_TILE_BASE+2
     sta OAM_BUF, x
     inx
     lda #%00000010          ; Palette 2
@@ -570,7 +535,7 @@ DrawHitEffect:
     lda temp1
     sta OAM_BUF, x
     inx
-    lda #$83
+    lda #EFFECT_TILE_BASE+3
     sta OAM_BUF, x
     inx
     lda #%01000010          ; Palette 2, flip H
@@ -614,7 +579,7 @@ DrawStunEffect:
     and #7
     sta OAM_BUF, x
     inx
-    lda #$90                ; Star tile
+    lda #EFFECT_TILE_BASE+16       ; Star tile
     sta OAM_BUF, x
     inx
     lda #%00000011          ; Palette 3 (white/silver)
@@ -631,7 +596,7 @@ DrawStunEffect:
     sbc #12
     sta OAM_BUF, x
     inx
-    lda #$91                ; Star tile 2
+    lda #EFFECT_TILE_BASE+17       ; Star tile 2
     sta OAM_BUF, x
     inx
     lda #%01000011          ; Palette 3, flip H

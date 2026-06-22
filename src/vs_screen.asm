@@ -2,6 +2,10 @@
 ; "MICHAEL RIVERS vs LIGHTNING" display before fight
 ; ============================================================================
 
+.include "constants.asm"
+.include "zeropage.asm"
+.include "macros.asm"
+
 .segment "CODE"
 
 ; =============================================================================
@@ -53,37 +57,6 @@ RenderVS:
     bcc @lspr_loop
 
     stx oam_index
-
-    ; Draw "VS" letters as sprites in center
-    ldx oam_index
-    ; V
-    lda #100
-    sta OAM_BUF, x
-    inx
-    lda #$86                ; V tile
-    sta OAM_BUF, x
-    inx
-    lda #%00000011          ; White
-    sta OAM_BUF, x
-    inx
-    lda #118
-    sta OAM_BUF, x
-    inx
-    ; S
-    lda #100
-    sta OAM_BUF, x
-    inx
-    lda #$93                ; S tile
-    sta OAM_BUF, x
-    inx
-    lda #%00000011
-    sta OAM_BUF, x
-    inx
-    lda #126
-    sta OAM_BUF, x
-    inx
-    stx oam_index
-
     rts
 
 ; =============================================================================

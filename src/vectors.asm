@@ -2,6 +2,10 @@
 ; Located at $FFFA-$FFFF in PRG-ROM
 ; ============================================================================
 
+.include "constants.asm"
+.include "zeropage.asm"
+.include "macros.asm"
+
 .segment "VECTORS"
 
 ; =============================================================================

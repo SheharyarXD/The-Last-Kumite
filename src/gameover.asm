@@ -2,6 +2,10 @@
 ; Ron Hall thumbs-down cutscene + death text
 ; ============================================================================
 
+.include "constants.asm"
+.include "zeropage.asm"
+.include "macros.asm"
+
 .segment "CODE"
 
 ; =============================================================================
@@ -14,7 +18,7 @@ RenderGameOver:
     and #32
     beq @go_hide
 
-    SET_PTR text_ptr_lo, continue_text
+    SET_PTR text_ptr_lo, continue_text_go
     lda #6
     sta text_x_pos
     lda #26
@@ -32,5 +36,7 @@ RenderGameOver:
 @go_done:
     rts
 
+continue_text_go:
+    .asciiz "PRESS START TO CONTINUE"
 blank_continue:
     .asciiz "                    "
