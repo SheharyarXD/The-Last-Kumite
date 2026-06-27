@@ -135,11 +135,23 @@ def main():
         for ty in range(TILES_H):
             row_vals = [str(TILE_BASE + nametable[ty][tx]) for tx in range(TILES_W)]
             f.write(f"    .byte {', '.join(row_vals)}\n")
+        # Attribute table: 64 bytes (8 columns × 8 rows of 4×4 tile blocks).
+        # Upper 2 attribute rows (tile rows 0-7)  → palette 0 = sky blues.
+        # Lower 6 attribute rows (tile rows 8-27) → palette 1 = earth tones.
+        # %00000000 = all four 2×2 quadrants use palette 0.
+        # %01010101 = all four 2×2 quadrants use palette 1.
         f.write("\nstage_attribute_table:\n")
-        f.write("    .byte ")
-        attr_bytes = ["%01010101"] * 14
-        f.write(", ".join(attr_bytes))
-        f.write("\n")
+        attr_bytes = []
+        for attr_row in range(8):       # 8 attribute rows
+            if attr_row < 2:
+                val = "%00000000"       # palette 0 — sky blues ($11/$21/$31)
+            else:
+                val = "%01010101"       # palette 1 — earth tones ($08/$18/$28)
+            for _col in range(8):       # 8 attribute columns per row
+                attr_bytes.append(val)
+        # Emit as 8 .byte lines of 8 values each (64 bytes total)
+        for i in range(0, 64, 8):
+            f.write("    .byte " + ", ".join(attr_bytes[i:i + 8]) + "\n")
 
     print(f"Wrote {OUT_INC}")
 

@@ -68,6 +68,7 @@ STATE_FIGHT         = 3
 STATE_WIN           = 4
 STATE_LOSE          = 5
 STATE_GAMEOVER      = 6
+STATE_MENU          = 7     ; Post-game menu: Continue / Start New Game
 
 ; =============================================================================
 ; PLAYER STATES (Michael Rivers)

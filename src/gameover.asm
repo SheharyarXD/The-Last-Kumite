@@ -39,4 +39,4 @@ RenderGameOver:
 continue_text_go:
     .asciiz "PRESS START TO CONTINUE"
 blank_continue:
-    .asciiz "                    "
+    .asciiz "                       "

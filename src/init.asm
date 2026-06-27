@@ -143,7 +143,10 @@ default_palette:
     .byte $0F
     .byte $08, $18, $28     ; $3F05-$3F07 BG1: Ground earth tones
     .byte $0F
-    .byte $06, $16, $26     ; $3F09-$3F0B BG2: Building/wall
+    ; BG2 was defined as "Building/wall" but no stage attribute table ever
+    ; actually selects palette 2 (LoadFightStage only uses palettes 0/1) --
+    ; repurposed here for the title-screen logo emblem instead.
+    .byte $16, $27, $30     ; $3F09-$3F0B BG2: Title logo (red/gold/white)
     .byte $0F
     .byte $00, $10, $30     ; $3F0D-$3F0F BG3: UI elements
 

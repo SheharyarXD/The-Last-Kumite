@@ -51,21 +51,21 @@ LD65_FLAGS  := -C $(LINKER_CFG) --dbgfile $(BUILD_DIR)/$(ROM_NAME).dbg
 all: dirs $(BUILD_DIR)/$(ROM_NAME).nes
 
 dirs:
-	@mkdir -p $(BUILD_DIR)
+	@mkdir -p $(BUILD_DIR) 2>/dev/null || true
 
 # Rebuild CHR data + generated sprite-map .inc files from the authored art.
 chr:
 	@echo "[ASSETS] Authoring sprite frames..."
-	python3 $(TOOLS_DIR)/author_sprites.py
+	python $(TOOLS_DIR)/author_sprites.py
 	@echo "[ASSETS] Converting to CHR + generating sprite maps..."
-	python3 $(TOOLS_DIR)/chr_convert.py
+	python $(TOOLS_DIR)/chr_convert.py
 
 # Rebuild the fight-stage background from assets/32732.png.
 bg:
 	@echo "[ASSETS] Converting stage background..."
-	python3 $(TOOLS_DIR)/bg_convert.py
+	python $(TOOLS_DIR)/bg_convert.py
 	@echo "[ASSETS] Re-merging CHR (background half changed)..."
-	python3 $(TOOLS_DIR)/chr_convert.py
+	python $(TOOLS_DIR)/chr_convert.py
 
 assets: chr bg
 
@@ -73,10 +73,10 @@ $(BUILD_DIR)/$(ROM_NAME).nes: $(OBJECTS) $(CHR_DATA) $(LINKER_CFG) build_rom.py
 	@echo "[LD] Linking ROM..."
 	$(LD65) $(LD65_FLAGS) -o $(BUILD_DIR)/$(ROM_NAME)_raw.bin $(OBJECTS)
 	@echo "[HEADER] Building final .nes (iNES header + PRG + CHR)..."
-	python3 build_rom.py $(BUILD_DIR)/$(ROM_NAME)_raw.bin $(CHR_DATA) $(BUILD_DIR)/$(ROM_NAME).nes
+	python build_rom.py $(BUILD_DIR)/$(ROM_NAME)_raw.bin $(CHR_DATA) $(BUILD_DIR)/$(ROM_NAME).nes
 
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.asm
-	@mkdir -p $(BUILD_DIR)
+	@mkdir -p $(BUILD_DIR) 2>/dev/null || true
 	@echo "[AS] $<"
 	$(CA65) $(CA65_FLAGS) -o $@ $<
 
@@ -91,7 +91,7 @@ run: all
 
 clean:
 	@echo "[CLEAN] Removing build artifacts..."
-	rm -rf $(BUILD_DIR)
+	@rm -rf $(BUILD_DIR) 2>/dev/null || true
 
 SHARED_HEADERS := \
 	$(SRC_DIR)/constants.asm \

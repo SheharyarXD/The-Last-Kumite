@@ -105,6 +105,7 @@ state_jump_table:
     .word HandleWin         ; 4
     .word HandleLose        ; 5
     .word HandleGameOver    ; 6
+    .word HandleMenu        ; 7
 
 ; =============================================================================
 ; INIT CURRENT STATE — One-time setup for each state
@@ -127,6 +128,7 @@ init_jump_table:
     .word InitWin
     .word InitLose
     .word InitGameOver
+    .word InitMenu
 
 ; =============================================================================
 ; RENDER FRAME — Top-level render dispatcher

@@ -59,7 +59,33 @@ NMI:
 
 @apply_scroll:
     ; -------------------------------------------------------------------------
+    ; Background tile updates MUST come BEFORE scroll writes.
+    ; ProcessBGUpdates writes PPU_ADDR which clobbers the PPU's internal "t"
+    ; register.  If it ran after PPU_SCROLL the scroll position would be
+    ; replaced by a VRAM address, causing a full-screen position shift every
+    ; frame that has pending updates (HUD text, combo counter, etc.) — the
+    ; main source of mid-fight screen blinking.
+    ; -------------------------------------------------------------------------
+    lda bg_update_count
+    beq @no_bg_update
+    jsr ProcessBGUpdates
+@no_bg_update:
+
+    ; -------------------------------------------------------------------------
+    ; Reset address/scroll latch, then write scroll.
+    ; The bit PPU_STATUS read is mandatory: ProcessBGUpdates may leave the
+    ; write toggle in an unknown state depending on how many PPU_ADDR writes
+    ; it performed.  Without this reset, the two PPU_SCROLL writes below can
+    ; be mis-interpreted as a PPU_ADDR pair and the background will scroll to
+    ; a garbage nametable position.
+    ; -------------------------------------------------------------------------
+    bit PPU_STATUS
+
+    ; -------------------------------------------------------------------------
     ; Set scroll position (with shake offset)
+    ; These writes set the PPU "t" register to the correct scroll position.
+    ; This is the FINAL write to "t" before rendering begins, so it takes
+    ; effect for the next visible frame.
     ; -------------------------------------------------------------------------
     lda scroll_x
     clc
@@ -77,14 +103,6 @@ NMI:
     sta PPU_CTRL
 
     ; -------------------------------------------------------------------------
-    ; Background tile updates (if any queued)
-    ; -------------------------------------------------------------------------
-    lda bg_update_count
-    beq @no_bg_update
-    jsr ProcessBGUpdates
-@no_bg_update:
-
-    ; -------------------------------------------------------------------------
     ; Restore registers and return
     ; -------------------------------------------------------------------------
     pla
@@ -98,6 +116,12 @@ NMI:
 ; PROCESS BG UPDATES — Write pending background tiles to PPU
 ; =============================================================================
 ProcessBGUpdates:
+    ; Reset the PPU write toggle before touching PPU_ADDR.
+    ; The latch state from any previous NMI or main-loop PPU access is
+    ; unknown; without this, the first PPU_ADDR write below might be treated
+    ; as a low-byte write rather than a high-byte write, sending tile data
+    ; to the wrong VRAM address.
+    bit PPU_STATUS
     ldx #0
 @bg_update_loop:
     lda bg_update_buf, x    ; PPU address high

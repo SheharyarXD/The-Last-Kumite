@@ -194,6 +194,7 @@ work_ptr_hi         = $00C1
 work_count          = $00C2
 work_val            = $00C3
 rand_seed           = $00C4     ; Pseudo-random seed
+menu_cursor         = $00C5     ; Post-game menu selection (0=CONTINUE, 1=START)
 
 ; =============================================================================
 ; OAM BUFFER ($0200-$02FF)

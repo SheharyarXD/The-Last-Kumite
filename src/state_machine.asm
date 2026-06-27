@@ -15,10 +15,20 @@
 ; ---- Init ----
 .export InitTitle
 InitTitle:
+    ; Turn off rendering BEFORE any PPU writes.
+    ; Without this, direct PPU_ADDR/PPU_DATA writes that follow (ClearNametable,
+    ; DrawTitleLogo, DrawText) race the active renderer and produce text overlap
+    ; or garbage tiles on every transition back from GAMEOVER or MENU.
+    RENDER_OFF
+
     ; Clear screen
     lda #0
     sta nametable
     jsr ClearNametable
+
+    ; Draw the fist/ring emblem converted from assets/32730.png
+    ; (see src/title_logo.inc + src/title.asm:DrawTitleLogo)
+    jsr DrawTitleLogo
 
     ; Draw "THE LAST KUMITE" title
     SET_PTR text_ptr_lo, title_text
@@ -95,24 +105,63 @@ HandleTitle:
 InitIntro:
     RENDER_OFF
 
-    lda #0
-    sta text_page
-    sta text_scroll_y
-    lda #4                  ; 4 pages of story text
-    sta text_total_pages
-    lda #1                  ; Start typing
-    sta text_state
-    lda #TEXT_SPEED
-    sta text_delay
-    sta text_timer
-
-    ; Clear nametable
+    ; Clear nametable (fills with blank tile $00)
     lda #0
     sta nametable
     jsr ClearNametable
 
-    ; Load first page
-    jsr LoadStoryPage
+    ; Draw all 4 story lines at once — no paging, no typewriter.
+    ; The previous paged typewriter approach left ghost text on screen
+    ; because LoadStoryPage never cleared the nametable between pages.
+
+    ; Line 1: "THE WORLD'S MOST DANGEROUS"
+    SET_PTR text_ptr_lo, story_page1
+    lda #3
+    sta text_x_pos
+    lda #8
+    sta text_y_pos
+    jsr DrawText
+
+    ; Line 2: "FIGHTERS GATHER IN SECRET TO"
+    SET_PTR text_ptr_lo, story_page2
+    lda #2
+    sta text_x_pos
+    lda #11
+    sta text_y_pos
+    jsr DrawText
+
+    ; Line 3: "COMPETE IN THE LEGENDARY"
+    SET_PTR text_ptr_lo, story_page3
+    lda #4
+    sta text_x_pos
+    lda #14
+    sta text_y_pos
+    jsr DrawText
+
+    ; Line 4: "KUMITE TOURNAMENT."
+    SET_PTR text_ptr_lo, story_page4
+    lda #6
+    sta text_x_pos
+    lda #17
+    sta text_y_pos
+    jsr DrawText
+
+    ; "PRESS START" prompt
+    SET_PTR text_ptr_lo, press_start_text
+    lda #10
+    sta text_x_pos
+    lda #22
+    sta text_y_pos
+    jsr DrawText
+
+    ; Mark text as done — HandleIntro just waits for START
+    lda #3
+    sta text_state
+
+    lda #0
+    sta scroll_x
+    sta scroll_y
+    sta fade_level
 
     RENDER_ON
     rts
@@ -120,67 +169,31 @@ InitIntro:
 ; ---- Handler ----
 .export HandleIntro
 HandleIntro:
-    ; Handle text typing
-    lda text_state
-    cmp #1                  ; Typing?
-    bne @check_advance
-
-    ; Type next character
-    dec text_timer
-    bne @intro_done
-    lda text_delay
-    sta text_timer
-
-    ; Read next character from text
-    ldy #0
-    lda (text_ptr_lo), y
-    beq @page_done          ; Null = end of page
-
-    ; Display character (buffered BG update)
-    jsr TypeNextChar
-
-    ; Advance pointer
-    inc text_ptr_lo
-    bne @intro_done
-    inc text_ptr_hi
-    jmp @intro_done
-
-@page_done:
-    lda #3                  ; State: waiting for advance
-    sta text_state
-    jmp @intro_done
-
-@check_advance:
-    cmp #3                  ; Waiting for START?
-    bne @intro_done
-
-    ; Blink cursor
+    ; Blink "PRESS START"
     lda framecounter
-    and #16
-    bne @show_cursor
-    jsr HideCursor
+    and #32
+    beq @hide_prompt
+
+    SET_PTR text_ptr_lo, press_start_text
+    lda #10
+    sta text_x_pos
+    lda #22
+    sta text_y_pos
+    jsr DrawTextBuffered
     jmp @check_start_intro
-@show_cursor:
-    jsr ShowCursor
+
+@hide_prompt:
+    SET_PTR text_ptr_lo, blank_press_text
+    lda #10
+    sta text_x_pos
+    lda #22
+    sta text_y_pos
+    jsr DrawTextBuffered
 
 @check_start_intro:
     lda pad1_new
     and #BTN_START
     beq @intro_done
-
-    ; Advance to next page
-    inc text_page
-    lda text_page
-    cmp text_total_pages
-    bcs @intro_complete
-
-    ; Load next page
-    jsr LoadStoryPage
-    lda #1                  ; Back to typing
-    sta text_state
-    jmp @intro_done
-
-@intro_complete:
     ; All text shown, go to VS screen
     PLAY_SFX #SFX_START
     STATE_CHANGE STATE_VS
@@ -296,11 +309,11 @@ HandleWin:
     cmp #60                 ; 1 second delay
     bcc @win_done
 
-    ; Check for START to return to title
+    ; Check for START to go to post-game menu
     lda pad1_new
     and #BTN_START
     beq @win_done
-    STATE_CHANGE STATE_GAMEOVER   ; Demo ends with game over screen
+    STATE_CHANGE STATE_MENU   ; Continue / Start New Game menu
 @win_done:
     rts
 
@@ -322,8 +335,8 @@ HandleLose:
     lda state_timer
     cmp #120                ; 2 seconds of KO display
     bcc @lose_done
-    ; Go to game over
-    STATE_CHANGE STATE_GAMEOVER
+    ; Go to post-game menu
+    STATE_CHANGE STATE_MENU
 @lose_done:
     rts
 
@@ -398,12 +411,188 @@ HandleGameOver:
     lda pad1_new
     and #BTN_START
     beq @gameover_done
-    STATE_CHANGE STATE_TITLE
+    STATE_CHANGE STATE_MENU   ; Post-game menu: Continue or Start New Game
 @gameover_done:
     rts
 
 ; ---- Render ----
 ; (RenderGameOver implementation lives in gameover.asm)
+
+; =============================================================================
+; STATE: POST-GAME MENU
+; Shown after WIN, LOSE, or GAME OVER.
+; UP/DOWN to move cursor.  START or A to confirm.
+;   0 = CONTINUE  → STATE_VS  (rematch from VS intro)
+;   1 = START     → STATE_TITLE
+; =============================================================================
+
+; ---- Init ----
+.export InitMenu
+InitMenu:
+    RENDER_OFF
+
+    ; Default cursor to CONTINUE
+    lda #0
+    sta menu_cursor
+
+    ; Clear screen
+    lda #0
+    sta nametable
+    jsr ClearNametable
+
+    ; "THE LAST KUMITE" header (same position as title screen)
+    SET_PTR text_ptr_lo, title_text
+    lda #8
+    sta text_x_pos
+    lda #6
+    sta text_y_pos
+    jsr DrawText
+
+    ; Divider prompt
+    SET_PTR text_ptr_lo, menu_header_text
+    lda #8
+    sta text_x_pos
+    lda #10
+    sta text_y_pos
+    jsr DrawText
+
+    ; Option 0 — CONTINUE (initially selected, so arrow on this line)
+    SET_PTR text_ptr_lo, menu_arrow_text
+    lda #6
+    sta text_x_pos
+    lda #15
+    sta text_y_pos
+    jsr DrawText
+
+    SET_PTR text_ptr_lo, menu_continue_text
+    lda #8
+    sta text_x_pos
+    lda #15
+    sta text_y_pos
+    jsr DrawText
+
+    ; Option 1 — START (no arrow)
+    SET_PTR text_ptr_lo, menu_blank_arrow
+    lda #6
+    sta text_x_pos
+    lda #18
+    sta text_y_pos
+    jsr DrawText
+
+    SET_PTR text_ptr_lo, menu_start_text
+    lda #8
+    sta text_x_pos
+    lda #18
+    sta text_y_pos
+    jsr DrawText
+
+    ; Reset scroll
+    lda #0
+    sta scroll_x
+    sta scroll_y
+    sta fade_level
+
+    RENDER_ON
+    rts
+
+; ---- Handler ----
+.export HandleMenu
+HandleMenu:
+    ; --- DOWN: move cursor from 0→1 ---
+    lda pad1_new
+    and #BTN_DOWN
+    beq @check_up
+    lda menu_cursor
+    cmp #1
+    beq @check_up          ; Already at bottom
+    lda #1
+    sta menu_cursor
+    jsr DrawMenuArrows
+    jmp @check_confirm
+
+@check_up:
+    ; --- UP: move cursor from 1→0 ---
+    lda pad1_new
+    and #BTN_UP
+    beq @check_confirm
+    lda menu_cursor
+    cmp #0
+    beq @check_confirm     ; Already at top
+    lda #0
+    sta menu_cursor
+    jsr DrawMenuArrows
+
+@check_confirm:
+    ; --- START or A to confirm ---
+    lda pad1_new
+    and #(BTN_START | BTN_A)
+    beq @menu_done
+
+    lda menu_cursor
+    bne @select_title
+    ; CONTINUE → go to VS screen (full rematch)
+    PLAY_SFX #SFX_START
+    STATE_CHANGE STATE_VS
+    jmp @menu_done
+
+@select_title:
+    ; START NEW GAME → title screen
+    PLAY_SFX #SFX_START
+    STATE_CHANGE STATE_TITLE
+
+@menu_done:
+    rts
+
+; DrawMenuArrows — update the two arrow columns via BG update buffer.
+; Row 15 = option 0, Row 18 = option 1.  Puts ">" on the selected row, " " on the other.
+DrawMenuArrows:
+    lda menu_cursor
+    beq @cursor_top
+
+    ; Cursor on option 1 (row 18): blank top, arrow bottom
+    SET_PTR text_ptr_lo, menu_blank_arrow
+    lda #6
+    sta text_x_pos
+    lda #15
+    sta text_y_pos
+    jsr DrawTextBuffered
+
+    SET_PTR text_ptr_lo, menu_arrow_text
+    lda #6
+    sta text_x_pos
+    lda #18
+    sta text_y_pos
+    jsr DrawTextBuffered
+    rts
+
+@cursor_top:
+    ; Cursor on option 0 (row 15): arrow top, blank bottom
+    SET_PTR text_ptr_lo, menu_arrow_text
+    lda #6
+    sta text_x_pos
+    lda #15
+    sta text_y_pos
+    jsr DrawTextBuffered
+
+    SET_PTR text_ptr_lo, menu_blank_arrow
+    lda #6
+    sta text_x_pos
+    lda #18
+    sta text_y_pos
+    jsr DrawTextBuffered
+    rts
+
+; ---- Menu Text Data ----
+menu_header_text:
+    .asciiz "SELECT ACTION"
+menu_continue_text:
+    .asciiz "CONTINUE"
+menu_start_text:
+    .asciiz "START NEW GAME"
+menu_arrow_text:
+    .asciiz ">"
+menu_blank_arrow:
+    .asciiz " "
 
 ; =============================================================================
 ; HELPER FUNCTIONS
