@@ -307,6 +307,17 @@ DrawTextBuffered:
     lda (text_ptr_lo), y
     beq @buf_done
 
+    ; Guard: stop queuing once the shared per-frame update buffer is full
+    ; rather than overflowing bg_update_buf (96 bytes / 32 entries) into
+    ; adjacent zero-page memory. This can only be reached if something
+    ; else queued a large number of updates the same frame (e.g. a HUD
+    ; health-bar change landing on the same frame as a long buffered
+    ; string); silently dropping the remaining characters of this string
+    ; for one frame is far safer than corrupting unrelated state.
+    lda bg_update_count
+    cmp #MAX_BG_UPDATES
+    bcs @buf_done
+
     ; Store PPU address (high then low)
     ldx bg_update_byte_idx
     lda temp2

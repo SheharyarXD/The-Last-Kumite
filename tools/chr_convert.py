@@ -34,8 +34,8 @@ TILE_BYTES = 16
 TILES_PER_BANK = 256
 BANK_BYTES = TILE_BYTES * TILES_PER_BANK  # 4096
 
-MICHAEL_GI = (216, 40, 40)
-LIGHTNING_GI = (56, 96, 216)
+MICHAEL_GI = (216, 64, 24)
+LIGHTNING_GI = (40, 88, 216)
 
 
 def tile_to_2bpp(pixel_idx_8x8):
@@ -65,22 +65,25 @@ def sprite16_to_tiles(pixel_idx_16x16):
 def quantize_5_to_4(img, gi_rgb):
     """Map authored RGBA pixels onto a 4-entry NES sprite palette:
       0 = transparent (no sprite pixel drawn)
-      1 = gi color (red for Michael, blue for Lightning)
-      2 = trim (white)
-      3 = skin / dark (pants, hair) - both bucketed into one fill color
+      1 = gi color (red-orange for Michael, blue for Lightning)
+      2 = warm gold/orange accent (headband, sash, hands, feet/boots --
+          the reference art uses the same warm accent tone for all of
+          these on both fighters)
+      3 = dark (hair, pants) -- maps to black ($0F) in the in-game sprite
+          palette (init.asm), not a skin tone; there is no separate skin
+          color in this 3-color budget, so hands/feet are folded into the
+          index-2 accent bucket instead (see author_sprites.py) since the
+          reference sheets render them in a matching warm tone anyway.
     """
     w, h = img.size
     out = [[0] * w for _ in range(h)]
-    table = {1: gi_rgb, 2: (240, 240, 240), 3: (236, 178, 122)}
+    table = {1: gi_rgb, 2: (232, 156, 40), 3: (20, 18, 18)}
     for y in range(h):
         for x in range(w):
             r, g, b, a = img.getpixel((x, y))
             if a < 128:
                 out[y][x] = 0
                 continue
-            if r < 60 and g < 60 and b < 60:
-                out[y][x] = 3  # dark hair/pants -> shares the "skin" slot's
-                continue       # index but is a separate visual fill color
             best, best_d = 1, None
             for i in (1, 2, 3):
                 pr, pg, pb = table[i]
@@ -89,6 +92,53 @@ def quantize_5_to_4(img, gi_rgb):
                     best_d, best = d, i
             out[y][x] = best
     return out
+
+
+def quantize_generic_3color(img, color1, color2, color3):
+    """Like quantize_5_to_4, but for one-off static images (VS portraits,
+    the Game Over thumbs-down art) authored with their own named palette
+    rather than the fighter gi/accent/dark convention. Same 0=transparent,
+    nearest-of-3 mapping otherwise."""
+    w, h = img.size
+    out = [[0] * w for _ in range(h)]
+    table = {1: color1, 2: color2, 3: color3}
+    for y in range(h):
+        for x in range(w):
+            r, g, b, a = img.getpixel((x, y))
+            if a < 128:
+                out[y][x] = 0
+                continue
+            best, best_d = 1, None
+            for i in (1, 2, 3):
+                pr, pg, pb = table[i]
+                d = (r - pr) ** 2 + (g - pg) ** 2 + (b - pb) ** 2
+                if best_d is None or d < best_d:
+                    best_d, best = d, i
+            out[y][x] = best
+    return out
+
+
+def load_static_image(filename):
+    path = os.path.join(SRC_FRAMES, filename)
+    return Image.open(path).convert("RGBA")
+
+
+def build_static_tile_block(img, color1, color2, color3):
+    """Convert an arbitrary-sized (multiple-of-8 in both dimensions) RGBA
+    image into a flat list of 2bpp tile bytes, reading left-to-right,
+    top-to-bottom in 8x8 cells -- i.e. NOT the 2x2-quad metasprite order
+    sprite16_to_tiles uses for animation frames, since these are static
+    images drawn once by a dedicated render routine that walks tiles in
+    simple raster order."""
+    w, h = img.size
+    assert w % 8 == 0 and h % 8 == 0, f"image size {img.size} must be a multiple of 8x8"
+    pix = quantize_generic_3color(img, color1, color2, color3)
+    tiles = []
+    for ty in range(h // 8):
+        for tx in range(w // 8):
+            block = [[pix[ty * 8 + y][tx * 8 + x] for x in range(8)] for y in range(8)]
+            tiles.append(tile_to_2bpp(block))
+    return tiles, (w // 8, h // 8)
 
 
 def load_frames(name):
@@ -152,6 +202,61 @@ def main():
     print(f"Next free local tile index: {next_free}")
 
     effect_base = next_free
+    # --- Static one-off images: VS portraits + Game Over thumbs-down art.
+    # Placed right after the effect tiles, in the space freed up by the
+    # fighter sprite rework (see asset_pipeline.md tile budget notes).
+    # Tile 242 is skipped (title.asm hardcodes $F2 for its sparkle sprite);
+    # everything else in 156-255 is free, including the old 252 "solid
+    # block" placeholder tile since vs_screen.asm no longer uses it.
+    RESERVED_TILES = {242}
+    static_base = effect_base + 20  # 20 effect tiles
+    static_layout = {}
+    static_cursor = static_base
+
+    def next_free_tile():
+        nonlocal static_cursor
+        while static_cursor in RESERVED_TILES:
+            static_cursor += 1
+        t = static_cursor
+        static_cursor += 1
+        return t
+
+    for out_name, filename, colors in [
+        ("gameover_thumbs", "gameover_thumbs.png", ((230, 110, 48), (224, 168, 24), (16, 38, 52))),
+        ("vs_michael", "vs_michael.png", ((216, 64, 24), (232, 156, 40), (20, 18, 18))),
+        ("vs_lightning", "vs_lightning.png", ((40, 88, 216), (232, 156, 40), (20, 18, 18))),
+    ]:
+        path = os.path.join(SRC_FRAMES, filename)
+        if not os.path.exists(path):
+            print(f"WARNING: {path} not found, skipping {out_name} (run the matching author_*.py tool)")
+            continue
+        img = load_static_image(filename)
+        tiles, (tiles_w, tiles_h) = build_static_tile_block(img, *colors)
+        placed_indices = []
+        for t in tiles:
+            idx = next_free_tile()
+            if idx > 255:
+                raise SystemExit(
+                    f"ERROR: static image '{out_name}' overflows the sprite pattern table "
+                    f"(ran out of local tile indices at 255)"
+                )
+            sprite_bank[idx * TILE_BYTES:idx * TILE_BYTES + TILE_BYTES] = t
+            placed_indices.append(idx)
+        # These images are always placed in one contiguous run in practice
+        # (the only reserved tile, 242, falls after all three at current
+        # sizes); assert that here so a future size change that would
+        # actually fragment the block fails loudly instead of silently
+        # emitting a wrong base index.
+        if placed_indices != list(range(placed_indices[0], placed_indices[0] + len(placed_indices))):
+            raise SystemExit(
+                f"ERROR: static image '{out_name}' was fragmented by a reserved tile -- "
+                f"raster order assumes a contiguous block. Adjust RESERVED_TILES handling "
+                f"or shrink/reorder the static images so this one doesn't straddle tile 242."
+            )
+        base = placed_indices[0]
+        static_layout[out_name] = (base, tiles_w, tiles_h)
+        print(f"{out_name}: {tiles_w}x{tiles_h} tiles, base local index {base}")
+
     if os.path.exists(OUT_CHR):
         with open(OUT_CHR, "rb") as f:
             old = f.read()
@@ -177,12 +282,14 @@ def main():
             print(f"Relocated effect tiles to local {effect_base}-{effect_base+num_effect_tiles-1} "
                   f"(was 128-147 in the old layout)")
 
-            # Carry forward two decorative tiles used directly by title.asm
-            # (sparkle, local 242) and vs_screen.asm (solid block, local 252)
-            # — unrelated to the fighter/effect tiles above, just preserved
-            # as-is from the prior CHR so those two cosmetic call sites
-            # keep working unmodified.
-            for decorative_tile in (242, 252):
+            # Carry forward the one decorative tile still referenced
+            # directly by a hardcoded tile index: title.asm's sparkle
+            # sprite at local 242. (The old vs_screen.asm solid-block
+            # placeholder at local 252 is intentionally NOT carried
+            # forward any more -- vs_screen.asm now draws real portrait
+            # art instead, and 252 is legitimately reused by the static
+            # image packer above.)
+            for decorative_tile in (242,):
                 start = decorative_tile * TILE_BYTES
                 end = start + TILE_BYTES
                 sprite_bank[start:end] = old_sprite_bank[start:end]
@@ -233,7 +340,15 @@ def main():
     with open(OUT_INC_CONSTANTS, "w") as f:
         f.write("; AUTO-GENERATED by tools/chr_convert.py — DO NOT EDIT BY HAND\n")
         f.write("; Re-run `make chr` after changing chr/src_frames/*.png.\n\n")
-        f.write(f"EFFECT_TILE_BASE = {effect_base}  ; local tile index, hit/stun fx (20 tiles)\n")
+        f.write(f"EFFECT_TILE_BASE = {effect_base}  ; local tile index, hit/stun fx (20 tiles)\n\n")
+        for out_name in ("gameover_thumbs", "vs_michael", "vs_lightning"):
+            if out_name not in static_layout:
+                continue
+            base, tw, th = static_layout[out_name]
+            const_name = out_name.upper()
+            f.write(f"{const_name}_BASE = {base}\n")
+            f.write(f"{const_name}_TILES_W = {tw}\n")
+            f.write(f"{const_name}_TILES_H = {th}\n")
     print(f"Wrote {OUT_INC_CONSTANTS}")
 
     with open(OUT_INC_PLAYER, "w") as f:

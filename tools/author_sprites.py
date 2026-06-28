@@ -3,18 +3,22 @@
 THE LAST KUMITE — Fighter sprite authoring tool.
 
 Generates 16x16 pixel NES-style sprites for both fighters (Michael Rivers,
-red/black gi; Lightning, blue/dark gi) across every animation pose required
-by the GDD: idle, walk, punch, kick, jump, crouch, crouch-attack, block,
-hit, KO.
+red-orange gi; Lightning, blue gi) across every animation pose required by
+the GDD: idle, walk, punch, kick, jump, crouch, crouch-attack, block, hit,
+KO.
 
 This does NOT hand-trace the reference photos pixel-for-pixel (they are
-realistic stock-art proportioned figures at non-NES resolution, ~40-60px
-tall figures in a 256px-wide sheet — far too high-detail to map 1:1 onto a
-16x16 NES sprite). Instead it builds clean, readable, NES-proportioned
-silhouettes that follow the same poses and color language the reference
-sheets establish (upright fighting stance, gi top + dark pants, bandana/
-headband accent) so the in-game sprites are recognizably the same
-characters at the resolution the hardware can actually display.
+illustrated figures at non-NES resolution, roughly 40-60px tall on a 256px
+sheet -- too high-detail to map losslessly onto a 16x16 NES sprite, which
+also only gets 3 real colors + transparent on real hardware). Instead it
+builds clean, readable, NES-proportioned silhouettes that follow the same
+poses and color language the reference sheets (assets/sprites char (1).png,
+assets/Design2-juanjuanh-BC802-IMAGE1-1.png) establish: spiky hair with a
+headband, a gi top in the fighter's color, a contrasting sash/belt, dark gi
+pants, and gold/orange hands+feet -- the reference sheets use that same warm
+accent tone for headband, sash, and hands/feet on both fighters, so it is
+shared as a single accent color here (see the 3-color budget note in
+tools/chr_convert.py's quantize_5_to_4).
 
 Output: a PNG sprite sheet (one row per character, one column per frame)
 at 16x16 per cell, used as the input to chr_convert.py.
@@ -22,25 +26,24 @@ at 16x16 per cell, used as the input to chr_convert.py.
 import os
 from PIL import Image
 
-# NES-ish 4-color-per-sprite palette indices (we draw in RGB and quantize
-# to indices later in chr_convert.py). Using exactly 4 flat colors per
-# character keeps the conversion to 2bpp CHR lossless.
 TRANSPARENT = (0, 0, 0, 0)
 
-# Michael Rivers: red gi, white belt/trim, skin tone, black pants/hair
+# Michael Rivers: red-orange gi, gold accent (headband/sash/hands/feet),
+# near-black hair/pants. Drawn in full RGB; chr_convert.py quantizes down
+# to the in-game 3-color sprite palette (see init.asm SPR0).
 MICHAEL_PALETTE = {
-    "gi":    (216, 40, 40),
-    "trim":  (240, 240, 240),
-    "skin":  (236, 178, 122),
-    "dark":  (32, 28, 28),
+    "gi":     (216, 64, 24),
+    "accent": (232, 156, 40),
+    "dark":   (20, 18, 18),
 }
 
-# Lightning: blue gi, white trim, skin tone, black pants/hair
+# Lightning: blue gi, same gold accent, near-black hair/pants (see init.asm
+# SPR1) -- matches the reference sheets, which use identical accent/dark
+# tones for both fighters and only swap the gi color.
 LIGHTNING_PALETTE = {
-    "gi":    (56, 96, 216),
-    "trim":  (240, 240, 240),
-    "skin":  (236, 178, 122),
-    "dark":  (32, 28, 28),
+    "gi":     (40, 88, 216),
+    "accent": (232, 156, 40),
+    "dark":   (20, 18, 18),
 }
 
 W, H = 16, 16
@@ -56,16 +59,39 @@ def px(img, x, y, color):
 
 
 def rect(img, x0, y0, x1, y1, color):
+    if x1 < x0 or y1 < y0:
+        return
     for y in range(y0, y1 + 1):
         for x in range(x0, x1 + 1):
             px(img, x, y, color)
 
 
-def draw_head(img, cx, top, pal):
-    rect(img, cx - 1, top, cx + 1, top + 2, pal["skin"])
-    px(img, cx - 1, top - 1, pal["dark"])
-    px(img, cx, top - 1, pal["dark"])
-    px(img, cx + 1, top - 1, pal["dark"])
+def draw_head(img, cx, top, pal, facing=1, tilt=0):
+    """Spiky hair block with a headband stripe across the forehead.
+    facing: 1 = right, -1 = left (shifts the hair spike forward).
+    tilt: extra rows the head is lowered (crouch/hit poses)."""
+    top += tilt
+    rect(img, cx - 1, top, cx + 1, top + 1, pal["dark"])
+    px(img, cx - 2, top + 1, pal["dark"])
+    px(img, cx + 2, top + 1, pal["dark"])
+    px(img, cx + 2 * facing, top, pal["dark"])
+    rect(img, cx - 1, top + 2, cx + 1, top + 2, pal["accent"])
+    px(img, cx + facing, top + 2, pal["accent"])
+    rect(img, cx - 1, top + 3, cx + 1, top + 3, pal["dark"])
+
+
+def draw_torso(img, cx, top, pal, w=2):
+    """Gi top + sash. w = half-width of the torso block."""
+    rect(img, cx - w, top, cx + w, top + 3, pal["gi"])
+    rect(img, cx - w, top + 4, cx + w, top + 4, pal["accent"])
+
+
+def draw_legs(img, cx, top, pal, leg_off=0, h=5):
+    """Standing/walking legs: dark gi pants, accent boots at the foot."""
+    rect(img, cx - 2 + leg_off, top, cx - 1 + leg_off, top + h - 1, pal["dark"])
+    rect(img, cx + 1 - leg_off, top, cx + 2 - leg_off, top + h - 1, pal["dark"])
+    rect(img, cx - 2 + leg_off, top + h, cx - 1 + leg_off, top + h + 1, pal["accent"])
+    rect(img, cx + 1 - leg_off, top + h, cx + 2 - leg_off, top + h + 1, pal["accent"])
 
 
 def draw_idle(pal, frame):
@@ -73,17 +99,10 @@ def draw_idle(pal, frame):
     cx = 7
     bob = 1 if frame == 1 else 0
     draw_head(img, cx, 1 + bob, pal)
-    # torso
-    rect(img, cx - 2, 4 + bob, cx + 2, 8 + bob, pal["gi"])
-    rect(img, cx - 2, 8 + bob, cx + 2, 9 + bob, pal["trim"])
-    # arms (guard stance)
-    rect(img, cx - 4, 5 + bob, cx - 3, 7 + bob, pal["skin"])
-    rect(img, cx + 3, 5 + bob, cx + 4, 7 + bob, pal["skin"])
-    # legs
-    rect(img, cx - 2, 10 + bob, cx - 1, 14, pal["dark"])
-    rect(img, cx + 1, 10 + bob, cx + 2, 14, pal["dark"])
-    rect(img, cx - 2, 14, cx - 1, 15, pal["trim"])
-    rect(img, cx + 1, 14, cx + 2, 15, pal["trim"])
+    draw_torso(img, cx, 5 + bob, pal)
+    rect(img, cx - 4, 6 + bob, cx - 3, 7 + bob, pal["accent"])
+    rect(img, cx + 3, 6 + bob, cx + 4, 7 + bob, pal["accent"])
+    draw_legs(img, cx, 10 + bob, pal, h=14 - (10 + bob))
     return img
 
 
@@ -91,16 +110,11 @@ def draw_walk(pal, frame):
     img = blank()
     cx = 7
     draw_head(img, cx, 1, pal)
-    rect(img, cx - 2, 4, cx + 2, 8, pal["gi"])
-    rect(img, cx - 2, 8, cx + 2, 9, pal["trim"])
-    rect(img, cx - 4, 5, cx - 3, 7, pal["skin"])
-    rect(img, cx + 3, 5, cx + 4, 7, pal["skin"])
-    # legs alternate based on frame (0-3)
+    draw_torso(img, cx, 5, pal)
+    rect(img, cx - 4, 6, cx - 3, 7, pal["accent"])
+    rect(img, cx + 3, 6, cx + 4, 7, pal["accent"])
     leg_off = [0, 1, 0, -1][frame % 4]
-    rect(img, cx - 2 + leg_off, 10, cx - 1 + leg_off, 14, pal["dark"])
-    rect(img, cx + 1 - leg_off, 10, cx + 2 - leg_off, 14, pal["dark"])
-    rect(img, cx - 2 + leg_off, 14, cx - 1 + leg_off, 15, pal["trim"])
-    rect(img, cx + 1 - leg_off, 14, cx + 2 - leg_off, 15, pal["trim"])
+    draw_legs(img, cx, 10, pal, leg_off=leg_off, h=4)
     return img
 
 
@@ -108,15 +122,12 @@ def draw_punch(pal, frame):
     img = blank()
     cx = 6
     draw_head(img, cx, 1, pal)
-    rect(img, cx - 2, 4, cx + 2, 8, pal["gi"])
-    rect(img, cx - 2, 8, cx + 2, 9, pal["trim"])
-    reach = 5 if frame == 1 else 2
-    rect(img, cx + 3, 5, cx + 3 + reach, 6, pal["skin"])
-    rect(img, cx - 4, 6, cx - 3, 8, pal["skin"])
-    rect(img, cx - 2, 10, cx - 1, 14, pal["dark"])
-    rect(img, cx + 1, 10, cx + 2, 14, pal["dark"])
-    rect(img, cx - 2, 14, cx - 1, 15, pal["trim"])
-    rect(img, cx + 1, 14, cx + 2, 15, pal["trim"])
+    draw_torso(img, cx, 5, pal)
+    reach = 6 if frame == 1 else 3
+    rect(img, cx + 3, 5, cx + 1 + reach, 6, pal["gi"])
+    rect(img, cx + 2 + reach, 5, cx + 3 + reach, 6, pal["accent"])
+    rect(img, cx - 4, 7, cx - 3, 8, pal["accent"])
+    draw_legs(img, cx, 10, pal, h=4)
     return img
 
 
@@ -124,15 +135,15 @@ def draw_kick(pal, frame):
     img = blank()
     cx = 6
     draw_head(img, cx, 1, pal)
-    rect(img, cx - 2, 4, cx + 2, 8, pal["gi"])
-    rect(img, cx - 2, 8, cx + 2, 9, pal["trim"])
-    rect(img, cx - 4, 5, cx - 3, 7, pal["skin"])
-    rect(img, cx + 3, 5, cx + 4, 7, pal["skin"])
+    draw_torso(img, cx, 5, pal)
+    rect(img, cx - 4, 6, cx - 3, 7, pal["accent"])
+    rect(img, cx + 3, 6, cx + 4, 7, pal["accent"])
     rect(img, cx - 2, 10, cx - 1, 13, pal["dark"])
-    extend = {0: 3, 1: 6, 2: 4}.get(frame, 3)
-    rect(img, cx + 1, 10, cx + 1 + extend, 11, pal["dark"])
-    rect(img, cx + 1 + extend - 1, 11, cx + 1 + extend, 12, pal["trim"])
-    rect(img, cx - 2, 13, cx - 1, 15, pal["trim"])
+    rect(img, cx - 2, 14, cx - 1, 15, pal["accent"])
+    extend = {0: 3, 1: 7, 2: 5}.get(frame, 3)
+    rise = {0: 0, 1: 2, 2: 1}.get(frame, 0)
+    rect(img, cx + 1, 10 - rise, cx + 1 + extend, 11 - rise, pal["dark"])
+    rect(img, cx + extend, 11 - rise, cx + 1 + extend, 12 - rise, pal["accent"])
     return img
 
 
@@ -140,12 +151,13 @@ def draw_crouch(pal):
     img = blank()
     cx = 7
     draw_head(img, cx, 5, pal)
-    rect(img, cx - 2, 8, cx + 2, 11, pal["gi"])
-    rect(img, cx - 2, 11, cx + 2, 12, pal["trim"])
-    rect(img, cx - 4, 9, cx - 3, 11, pal["skin"])
-    rect(img, cx + 3, 9, cx + 4, 11, pal["skin"])
-    rect(img, cx - 3, 13, cx - 1, 15, pal["dark"])
-    rect(img, cx + 1, 13, cx + 3, 15, pal["dark"])
+    draw_torso(img, cx, 9, pal, w=2)
+    rect(img, cx - 4, 10, cx - 3, 11, pal["accent"])
+    rect(img, cx + 3, 10, cx + 4, 11, pal["accent"])
+    rect(img, cx - 3, 13, cx - 1, 14, pal["dark"])
+    rect(img, cx + 1, 13, cx + 3, 14, pal["dark"])
+    rect(img, cx - 3, 15, cx - 1, 15, pal["accent"])
+    rect(img, cx + 1, 15, cx + 3, 15, pal["accent"])
     return img
 
 
@@ -154,12 +166,13 @@ def draw_jump(pal, frame):
     cx = 7
     top = 0 if frame == 0 else 2
     draw_head(img, cx, top, pal)
-    rect(img, cx - 2, top + 3, cx + 2, top + 7, pal["gi"])
-    rect(img, cx - 2, top + 7, cx + 2, top + 8, pal["trim"])
-    rect(img, cx - 4, top + 2, cx - 3, top + 5, pal["skin"])
-    rect(img, cx + 3, top + 2, cx + 4, top + 5, pal["skin"])
-    rect(img, cx - 3, top + 9, cx - 1, top + 11, pal["dark"])
-    rect(img, cx + 1, top + 9, cx + 3, top + 11, pal["dark"])
+    draw_torso(img, cx, top + 4, pal)
+    rect(img, cx - 4, top + 3, cx - 3, top + 4, pal["accent"])
+    rect(img, cx + 3, top + 3, cx + 4, top + 4, pal["accent"])
+    rect(img, cx - 3, top + 9, cx - 1, top + 10, pal["dark"])
+    rect(img, cx + 1, top + 9, cx + 3, top + 10, pal["dark"])
+    rect(img, cx - 3, top + 11, cx - 1, top + 11, pal["accent"])
+    rect(img, cx + 1, top + 11, cx + 3, top + 11, pal["accent"])
     return img
 
 
@@ -167,37 +180,35 @@ def draw_block(pal):
     img = blank()
     cx = 7
     draw_head(img, cx, 1, pal)
-    rect(img, cx - 2, 4, cx + 2, 8, pal["gi"])
-    rect(img, cx - 2, 8, cx + 2, 9, pal["trim"])
-    # arms crossed up front
-    rect(img, cx - 1, 3, cx + 3, 5, pal["skin"])
-    rect(img, cx - 2, 10, cx - 1, 14, pal["dark"])
-    rect(img, cx + 1, 10, cx + 2, 14, pal["dark"])
-    rect(img, cx - 2, 14, cx - 1, 15, pal["trim"])
-    rect(img, cx + 1, 14, cx + 2, 15, pal["trim"])
+    draw_torso(img, cx, 5, pal)
+    rect(img, cx - 1, 2, cx + 2, 3, pal["accent"])
+    rect(img, cx - 1, 4, cx + 2, 4, pal["gi"])
+    draw_legs(img, cx, 10, pal, h=4)
     return img
 
 
 def draw_hit(pal):
     img = blank()
     cx = 8
-    draw_head(img, cx, 2, pal)
-    rect(img, cx - 3, 5, cx + 1, 9, pal["gi"])
-    rect(img, cx - 3, 9, cx + 1, 10, pal["trim"])
-    rect(img, cx + 2, 4, cx + 5, 6, pal["skin"])
-    rect(img, cx - 5, 6, cx - 4, 8, pal["skin"])
-    rect(img, cx - 3, 11, cx - 2, 14, pal["dark"])
-    rect(img, cx, 11, cx + 1, 14, pal["dark"])
+    draw_head(img, cx, 2, pal, facing=-1, tilt=1)
+    draw_torso(img, cx - 1, 7, pal, w=2)
+    rect(img, cx + 2, 5, cx + 4, 6, pal["accent"])
+    rect(img, cx - 5, 7, cx - 4, 8, pal["accent"])
+    rect(img, cx - 3, 12, cx - 2, 14, pal["dark"])
+    rect(img, cx, 12, cx + 1, 14, pal["dark"])
+    rect(img, cx - 3, 15, cx - 2, 15, pal["accent"])
+    rect(img, cx, 15, cx + 1, 15, pal["accent"])
     return img
 
 
 def draw_ko(pal):
     img = blank()
-    # lying down silhouette
-    rect(img, 1, 12, 4, 14, pal["skin"])
-    rect(img, 4, 11, 12, 14, pal["gi"])
-    rect(img, 12, 12, 14, 14, pal["dark"])
-    rect(img, 4, 14, 12, 15, pal["trim"])
+    rect(img, 0, 12, 2, 13, pal["dark"])
+    rect(img, 1, 13, 3, 14, pal["accent"])
+    rect(img, 3, 11, 11, 14, pal["gi"])
+    rect(img, 3, 14, 11, 14, pal["accent"])
+    rect(img, 11, 12, 14, 14, pal["dark"])
+    rect(img, 13, 14, 15, 15, pal["accent"])
     return img
 
 

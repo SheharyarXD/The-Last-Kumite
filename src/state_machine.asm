@@ -217,14 +217,6 @@ InitVS:
     sta nametable
     jsr ClearNametable
 
-    ; Draw "VS" in center
-    SET_PTR text_ptr_lo, vs_big_text
-    lda #14
-    sta text_x_pos
-    lda #12
-    sta text_y_pos
-    jsr DrawText
-
     ; Draw "MICHAEL RIVERS"
     SET_PTR text_ptr_lo, name_michael
     lda #2
@@ -238,6 +230,18 @@ InitVS:
     lda #20
     sta text_x_pos
     lda #12
+    sta text_y_pos
+    jsr DrawText
+
+    ; Draw "VS" centered, on its own row below both names. (This used to
+    ; share row 12 with "MICHAEL RIVERS", which occupies columns 2-15 --
+    ; directly overlapping VS's columns 14-15 -- so drawing the name
+    ; afterward silently overwrote the V of VS. Giving it a separate row
+    ; avoids the collision entirely.)
+    SET_PTR text_ptr_lo, vs_big_text
+    lda #15
+    sta text_x_pos
+    lda #15
     sta text_y_pos
     jsr DrawText
 
@@ -335,8 +339,12 @@ HandleLose:
     lda state_timer
     cmp #120                ; 2 seconds of KO display
     bcc @lose_done
-    ; Go to post-game menu
-    STATE_CHANGE STATE_MENU
+    ; Go to the Game Over screen (Ron Hall thumbs-down + death text).
+    ; NOTE: this used to jump straight to STATE_MENU, which skipped
+    ; STATE_GAMEOVER entirely -- it was defined, fully implemented in
+    ; gameover.asm, and wired into both jump tables, but nothing ever
+    ; transitioned into it, so the thumbs-down screen could never appear.
+    STATE_CHANGE STATE_GAMEOVER
 @lose_done:
     rts
 
@@ -363,15 +371,18 @@ InitGameOver:
     SET_PTR text_ptr_lo, gameover_text
     lda #11
     sta text_x_pos
-    lda #8
+    lda #2
     sta text_y_pos
     jsr DrawText
+
+    ; (Ron Hall thumbs-down portrait sprite drawn by RenderGameOver,
+    ; tile rows 6-13 -- see gameover.asm)
 
     ; Draw Ron Hall description
     SET_PTR text_ptr_lo, ronhall_text
     lda #4
     sta text_x_pos
-    lda #12
+    lda #15
     sta text_y_pos
     jsr DrawText
 
@@ -386,7 +397,7 @@ InitGameOver:
 
     lda #4
     sta text_x_pos
-    lda #18
+    lda #19
     sta text_y_pos
     jsr DrawText
 
@@ -637,6 +648,7 @@ TypeNextChar:
     sta temp2
 
     ; Queue BG update
+    SKIP_IF_BG_QUEUE_FULL @tc_skip
     ldx bg_update_byte_idx
     lda temp2
     sta bg_update_buf, x
@@ -684,6 +696,7 @@ TypeNextChar:
     sta text_x_pos
     inc text_y_pos
 @tc_done:
+@tc_skip:
     rts
 
 ShowCursor:

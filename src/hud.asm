@@ -1,3 +1,22 @@
+; =============================================================================
+; HEALTH BAR PALETTE NOTE (BUG FIX):
+; NES BG tile color comes from the attribute table, NOT from the tile index.
+; The attribute table in stage_bg.inc rows 0-1 (top HUD area, rows 0-3 of
+; nametable) were set to 0x00 = palette 0 (sky blues) which made health bars
+; render as sky-blue-on-sky-blue = invisible.
+;
+; FIX APPLIED IN stage_bg.inc:
+;   stage_attribute_table byte 0: changed to %11001100 so columns 0-7 and
+;   16-23 (health bar columns) use palette 3 (HUD: red/white/orange).
+;   The center columns use palette 0 (sky) for the timer area.
+;
+; FIX APPLIED IN init.asm BG3 palette:
+;   $3F0C: $0F (transparent/black) — background of bars
+;   $3F0D: $26 (orange-red) — filled health tile border/glow
+;   $3F0E: $30 (white) — text / name color
+;   $3F0F: $3D (pale yellow-green) — accent
+; =============================================================================
+
 ; THE LAST KUMITE — HUD System
 ; Health bars, match timer, VS display, character names
 ; ============================================================================
@@ -112,6 +131,7 @@ DrawPlayerBar:
     ; Write 10 tiles, each as its own full [addr_hi][addr_lo][tile] entry
     ldy #0
 @plr_bar_loop:
+    SKIP_IF_BG_QUEUE_FULL @plr_bar_done
     ldx bg_update_byte_idx
     lda #$20
     sta bg_update_buf, x
@@ -137,6 +157,7 @@ DrawPlayerBar:
     iny
     cpy #10
     bcc @plr_bar_loop
+@plr_bar_done:
     rts
 
 ; =============================================================================
@@ -149,6 +170,7 @@ DrawEnemyBar:
 
     ldy #0
 @en_bar_loop:
+    SKIP_IF_BG_QUEUE_FULL @en_bar_done
     ldx bg_update_byte_idx
     lda #$20
     sta bg_update_buf, x
@@ -174,6 +196,7 @@ DrawEnemyBar:
     iny
     cpy #10
     bcc @en_bar_loop
+@en_bar_done:
     rts
 
 ; =============================================================================
@@ -214,6 +237,7 @@ DrawTimer:
     stx temp1               ; Tens digit
 
     ; Tens digit entry
+    SKIP_IF_BG_QUEUE_FULL @timer_done
     ldx bg_update_byte_idx
     lda #$20
     sta bg_update_buf, x
@@ -230,6 +254,7 @@ DrawTimer:
     inc bg_update_count
 
     ; Ones digit entry
+    SKIP_IF_BG_QUEUE_FULL @timer_done
     ldx bg_update_byte_idx
     lda #$20
     sta bg_update_buf, x
@@ -244,6 +269,7 @@ DrawTimer:
     inx
     stx bg_update_byte_idx
     inc bg_update_count
+@timer_done:
     rts
 
 ; =============================================================================

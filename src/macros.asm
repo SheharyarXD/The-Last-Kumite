@@ -211,3 +211,17 @@
     lda #>OAM_BUF
     sta OAM_DMA
 .endmacro
+
+; =============================================================================
+; SKIP IF BG UPDATE QUEUE FULL — branch to `label` instead of queuing a new
+; bg_update_buf entry if bg_update_count has already hit MAX_BG_UPDATES.
+; Prevents overflowing the shared per-frame buffer (and corrupting whatever
+; zero-page memory follows it) when several HUD/text updates land on the
+; same frame. See ppu.asm's DrawTextBuffered for the same guard inlined
+; (it needs to break out of a string loop rather than just skip one entry).
+; =============================================================================
+.macro SKIP_IF_BG_QUEUE_FULL label
+    lda bg_update_count
+    cmp #MAX_BG_UPDATES
+    bcs label
+.endmacro

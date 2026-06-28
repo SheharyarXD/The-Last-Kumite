@@ -2,3 +2,13 @@
 ; Re-run `make chr` after changing chr/src_frames/*.png.
 
 EFFECT_TILE_BASE = 136  ; local tile index, hit/stun fx (20 tiles)
+
+GAMEOVER_THUMBS_BASE = 156
+GAMEOVER_THUMBS_TILES_W = 7
+GAMEOVER_THUMBS_TILES_H = 7
+VS_MICHAEL_BASE = 205
+VS_MICHAEL_TILES_W = 4
+VS_MICHAEL_TILES_H = 4
+VS_LIGHTNING_BASE = 221
+VS_LIGHTNING_TILES_W = 4
+VS_LIGHTNING_TILES_H = 4

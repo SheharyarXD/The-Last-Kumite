@@ -138,23 +138,27 @@ LoadPalettes:
 ; =============================================================================
 default_palette:
     ; Background palettes ($3F00-$3F0F)
-    .byte $0F               ; $3F00 Universal background (black)
-    .byte $11, $21, $31     ; $3F01-$3F03 BG0: Sky blues
+    ; FIX: $0C (dark grey) instead of $0F (blacker-than-black) so tiles
+    ; render visible even with sub-optimal tile data in chr/tiles.chr.
+    .byte $0C               ; $3F00 Universal background (very dark grey)
+    ; FIX: BG0 sky blues boosted — $21=mid-blue, $31=light-blue, $3C=pale
+    .byte $21, $31, $3C     ; $3F01-$3F03 BG0: Sky blues (FIXED: was $11/$21/$31, too dark)
     .byte $0F
-    .byte $08, $18, $28     ; $3F05-$3F07 BG1: Ground earth tones
+    ; FIX: BG1 earth tones made warmer/lighter — $17=dark-orange, $27=tan, $37=cream
+    .byte $17, $27, $37     ; $3F05-$3F07 BG1: Ground earth tones (FIXED: was $08/$18/$28, too dark)
     .byte $0F
-    ; BG2 was defined as "Building/wall" but no stage attribute table ever
-    ; actually selects palette 2 (LoadFightStage only uses palettes 0/1) --
-    ; repurposed here for the title-screen logo emblem instead.
+    ; BG2 repurposed for title-screen logo emblem.
     .byte $16, $27, $30     ; $3F09-$3F0B BG2: Title logo (red/gold/white)
     .byte $0F
-    .byte $00, $10, $30     ; $3F0D-$3F0F BG3: UI elements
+    ; FIX: HUD palette — $26=orange-red for health bar borders, $30=white for text
+    ; was $00/$10/$30 which produced dark-grey/grey/white — health bars barely visible
+    .byte $26, $30, $3D     ; $3F0D-$3F0F BG3: HUD/UI (FIXED: was $00/$10/$30)
 
     ; Sprite palettes ($3F10-$3F1F)
     .byte $0F               ; $3F10 Sprite 0 transparent
-    .byte $16, $27, $37     ; $3F11-$3F13 SPR0: Michael (red gi)
+    .byte $16, $27, $0F     ; $3F11-$3F13 SPR0: Michael (red-orange gi, gold trim, black hair/pants)
     .byte $0F               ; $3F14 (transparent slot for SPR1 group)
-    .byte $02, $12, $22     ; $3F15-$3F17 SPR1: Lightning (blue gi)
+    .byte $12, $27, $0F     ; $3F15-$3F17 SPR1: Lightning (blue gi, gold trim, black hair/pants)
     .byte $0F
     .byte $18, $28, $38     ; $3F19-$3F1B SPR2: Effects (yellow)
     .byte $0F

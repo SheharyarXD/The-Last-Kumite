@@ -160,6 +160,7 @@ hit_flash_timer     = $0094
 special_effect_t    = $0095
 plr_dmg_accum       = $0096     ; Damage for current hit
 stun_combo_active   = $0097     ; 1 = enemy stunned by special
+temp_mul_result     = $0098     ; gameover.asm DrawThumbsPortrait scratch (row*7)
 
 ; =============================================================================
 ; TEXT / STORY RENDERING ($00A0-$00AF)

@@ -141,6 +141,8 @@ RenderFrame:
     beq @render_vs
     cmp #STATE_TITLE
     beq @render_title
+    cmp #STATE_GAMEOVER
+    beq @render_gameover
     ; Default: basic sprite render for all states
 @render_basic:
     jsr RenderBasicSprites
@@ -153,6 +155,9 @@ RenderFrame:
     jmp @render_done
 @render_title:
     jsr RenderTitle
+    jmp @render_done
+@render_gameover:
+    jsr RenderGameOver
 @render_done:
     ; Apply fade level
     jsr FadeUpdate

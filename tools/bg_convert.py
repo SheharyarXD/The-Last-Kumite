@@ -16,6 +16,24 @@ image's shading/silhouette structure instead, which is the standard
 approach when source art wasn't authored in the target palette to begin
 with.
 
+Two quality passes keep the result from reading as visual noise once it's
+squeezed into the 96-unique-tile budget:
+
+1. A small Gaussian blur runs BEFORE luminance bucketing. The source PNG
+   looks flat-color to the eye but actually carries thousands of distinct
+   per-pixel RGB values (texture/compression artifacts in the brick and
+   foliage areas), which the bucketing step turns into hundreds of
+   spuriously "unique" 8x8 tiles -- far more than the budget. Blurring
+   first merges that fine noise into smooth gradients, cutting the unique-
+   tile count roughly in half before dedup even runs, with no visible loss
+   of the actual silhouette (towers, clouds, tree line).
+2. Tiles beyond the 96 budget snap to the closest existing tile by full
+   8x8 pixel-pattern difference (sum of per-pixel index deltas), not by
+   single-number average brightness. Average-brightness snapping can pick
+   a totally differently-shaped tile that merely happens to average the
+   same brightness, which is what produced visible dithering/noise in the
+   ground area; pattern-difference snapping picks an actual shape match.
+
 Usage: python3 tools/bg_convert.py
 Reads:  assets/32732.png
         chr/tiles_bg.chr
@@ -23,7 +41,7 @@ Writes: chr/tiles_bg.chr (updated)
         src/stage_bg.inc
 """
 import os
-from PIL import Image
+from PIL import Image, ImageFilter
 
 ROOT = os.path.join(os.path.dirname(__file__), "..")
 BG_IMAGE = os.path.join(ROOT, "assets", "32732.png")
@@ -35,6 +53,7 @@ BANK_BYTES = 4096
 TILES_W, TILES_H = 32, 28
 TILE_BASE = 32              # first free local tile index (2-31 used by existing UI borders)
 MAX_STAGE_TILES = 96         # fits exactly in the free 32-127 range (alphabet starts at 128)
+PRE_BLUR_RADIUS = 1.5        # removes per-pixel noise before bucketing (see module docstring)
 
 
 def luminance(r, g, b):
@@ -76,6 +95,18 @@ def tile_to_2bpp(pixel_idx_8x8):
     return bytes(lo) + bytes(hi)
 
 
+def pattern_diff(a, b):
+    """Sum of per-pixel index differences between two 8x8 blocks. Used as
+    the post-budget fallback metric instead of average brightness so the
+    closest *shape*, not just the closest single brightness number, gets
+    reused -- see module docstring point 2."""
+    d = 0
+    for ra, rb in zip(a, b):
+        for va, vb in zip(ra, rb):
+            d += abs(va - vb)
+    return d
+
+
 def main():
     if not os.path.exists(BG_IMAGE):
         raise SystemExit(f"ERROR: {BG_IMAGE} not found")
@@ -85,6 +116,7 @@ def main():
     img = Image.open(BG_IMAGE).convert("RGB")
     if img.size != (256, 224):
         img = img.resize((256, 224))
+    img = img.filter(ImageFilter.GaussianBlur(radius=PRE_BLUR_RADIUS))
 
     pix_idx = quantize_by_luminance(img)
 
@@ -102,10 +134,7 @@ def main():
                 unique_tiles[block] = idx
                 tile_order.append(block)
             else:
-                def avg(b):
-                    return sum(sum(row) for row in b) / 64.0
-                target = avg(block)
-                idx = min(range(len(tile_order)), key=lambda i: abs(avg(tile_order[i]) - target))
+                idx = min(range(len(tile_order)), key=lambda i: pattern_diff(tile_order[i], block))
             nametable[ty][tx] = idx
 
     print(f"Unique background tiles used: {len(tile_order)} / budget {MAX_STAGE_TILES}")
