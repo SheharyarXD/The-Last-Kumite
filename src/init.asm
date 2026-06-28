@@ -140,15 +140,24 @@ default_palette:
     ; Background palettes ($3F00-$3F0F)
     ; FIX: $0C (dark grey) instead of $0F (blacker-than-black) so tiles
     ; render visible even with sub-optimal tile data in chr/tiles.chr.
-    .byte $0C               ; $3F00 Universal background (very dark grey)
-    ; FIX: BG0 sky blues boosted — $21=mid-blue, $31=light-blue, $3C=pale
-    .byte $21, $31, $3C     ; $3F01-$3F03 BG0: Sky blues (FIXED: was $11/$21/$31, too dark)
+    ; Universal backdrop is true black ($0F): the fight stage's stone
+    ; mortar lines / window shadows are genuinely black in the source
+    ; art, and bg_convert.py now nearest-color-matches per pixel instead
+    ; of forcing a fixed fraction of the image into this slot, so a rare,
+    ; intentional black no longer means "erase a quarter of the screen".
+    .byte $0F               ; $3F00 Universal background (black)
+    .byte $21, $31, $20     ; $3F01-$3F03 BG0: Sky — mid-blue/light-blue/cloud-white
     .byte $0F
-    ; FIX: BG1 earth tones made warmer/lighter — $17=dark-orange, $27=tan, $37=cream
-    .byte $17, $27, $37     ; $3F05-$3F07 BG1: Ground earth tones (FIXED: was $08/$18/$28, too dark)
+    ; BG1 recolored from earth-tone orange to a teal-grey stone ramp to
+    ; match the castle/ground masonry in assets/32732.png.
+    .byte $0C, $1C, $2C     ; $3F05-$3F07 BG1: Stone — dark/mid/light teal
     .byte $0F
-    ; BG2 repurposed for title-screen logo emblem.
-    .byte $16, $27, $30     ; $3F09-$3F0B BG2: Title logo (red/gold/white)
+    ; BG2 recolored from the title-logo red/gold/white to a green ramp,
+    ; used by the fight stage for foliage quadrants (tree line, bushes).
+    ; NOTE: title.asm's logo emblem used to ride on this same slot; since
+    ; palette RAM persists across states, title now needs its own reload
+    ; (see title.asm) instead of relying on this boot-time default.
+    .byte $0A, $1A, $2A     ; $3F09-$3F0B BG2: Foliage — dark/mid/light green
     .byte $0F
     ; FIX: HUD palette — $26=orange-red for health bar borders, $30=white for text
     ; was $00/$10/$30 which produced dark-grey/grey/white — health bars barely visible
@@ -160,6 +169,13 @@ default_palette:
     .byte $0F               ; $3F14 (transparent slot for SPR1 group)
     .byte $12, $27, $0F     ; $3F15-$3F17 SPR1: Lightning (blue gi, gold trim, black hair/pants)
     .byte $0F
-    .byte $18, $28, $38     ; $3F19-$3F1B SPR2: Effects (yellow)
+    ; FIX: was $18/$28/$38 (3 shades of yellow) -- recolored to dark
+    ; navy/orange/gold so the Game Over thumbs-down portrait (gameover.asm,
+    ; which draws with this palette) actually shows its intended
+    ; navy-robe/orange-skin/gold-trim colors instead of an all-yellow
+    ; wash. This palette is also still used for hit-spark/impact-flash
+    ; effects (ppu.asm, EFFECT_TILE_BASE tiles) -- those flashes will now
+    ; render navy/orange/gold instead of yellow.
+    .byte $0C, $17, $28     ; $3F19-$3F1B SPR2: Effects + Game Over portrait
     .byte $0F
     .byte $12, $22, $32     ; $3F1D-$3F1F SPR3: White/silver

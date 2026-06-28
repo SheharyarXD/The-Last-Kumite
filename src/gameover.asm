@@ -54,10 +54,12 @@ RenderGameOver:
 ; Tile index for cell (row,col) is GAMEOVER_THUMBS_BASE + row*7 + col,
 ; matching the raster (left-to-right, top-to-bottom) order
 ; build_static_tile_block in tools/chr_convert.py writes the source PNG.
-; Uses sprite palette 2 (effects palette in init.asm, $18/$28/$38 --
-; close enough to this art's dark/gold/orange tones to read fine, and
-; keeps the thumbs-down portrait visually distinct from both fighters'
-; palettes 0/1 without needing a 5th hardware palette slot).
+; Uses sprite palette 2 (init.asm), recolored to $0C/$17/$28 (dark
+; navy / orange / gold) specifically to match this art's robe/skin/trim
+; tones -- also still used for hit-spark/impact-flash effects (ppu.asm),
+; which now flash navy/orange/gold instead of the original yellow.
+; Keeps the thumbs-down portrait visually distinct from both fighters'
+; palettes 0/1 without needing a 5th hardware palette slot.
 DrawThumbsPortrait:
     lda oam_index
     tax

@@ -222,7 +222,15 @@ def main():
         return t
 
     for out_name, filename, colors in [
-        ("gameover_thumbs", "gameover_thumbs.png", ((230, 110, 48), (224, 168, 24), (16, 38, 52))),
+        # DrawThumbsPortrait (gameover.asm) renders this with sprite palette
+        # 2, which is hardware colors $0C/$17/$28 (init.asm) -- dark
+        # navy-teal, burnt orange, gold, in that brightness order. Color
+        # order here is (ROBE, SKIN, TRIM) so index 1/2/3 line up with
+        # dark/mid/bright: ROBE (the dominant fill -- torso, sleeves,
+        # skirt) lands on the darkest hardware color so it reads as a dark
+        # silhouette, SKIN lands on the mid orange tone, and TRIM/gold
+        # lands on the brightest tone for highlights.
+        ("gameover_thumbs", "gameover_thumbs.png", ((16, 38, 52), (230, 110, 48), (224, 168, 24))),
         ("vs_michael", "vs_michael.png", ((216, 64, 24), (232, 156, 40), (20, 18, 18))),
         ("vs_lightning", "vs_lightning.png", ((40, 88, 216), (232, 156, 40), (20, 18, 18))),
     ]:

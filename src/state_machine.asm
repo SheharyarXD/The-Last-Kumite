@@ -21,6 +21,19 @@ InitTitle:
     ; or garbage tiles on every transition back from GAMEOVER or MENU.
     RENDER_OFF
 
+    ; BG2 ($3F09-$3F0B) is shared with the fight stage's foliage ramp
+    ; (green, set in init.asm's default_palette) since palette RAM
+    ; persists across state changes. Re-point it at the logo's
+    ; red/gold/white here so returning to the title from GAMEOVER/MENU
+    ; after a fight doesn't show a green emblem.
+    PPU_SETADDR $3F09
+    lda #$16
+    sta PPU_DATA
+    lda #$27
+    sta PPU_DATA
+    lda #$30
+    sta PPU_DATA
+
     ; Clear screen
     lda #0
     sta nametable

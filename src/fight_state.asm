@@ -17,6 +17,26 @@ InitFight:
     ; Clear rendering
     RENDER_OFF
 
+    ; BG1/BG2 ($3F05-$3F0B) are shared palette RAM slots also used by
+    ; other states (BG2 is the title logo's red/gold/white). Re-point
+    ; them at the stage's stone/foliage ramps here so a fight entered
+    ; after visiting the title screen doesn't inherit the wrong colors.
+    PPU_SETADDR $3F05
+    lda #$0C
+    sta PPU_DATA
+    lda #$1C
+    sta PPU_DATA
+    lda #$2C
+    sta PPU_DATA
+    lda #$0F
+    sta PPU_DATA
+    lda #$0A
+    sta PPU_DATA
+    lda #$1A
+    sta PPU_DATA
+    lda #$2A
+    sta PPU_DATA
+
     ; Load fight stage background
     jsr LoadFightStage
 
@@ -270,30 +290,21 @@ LoadFightStage:
     bcc @stage_loop
 @stage_done:
 
-    ; Attribute table — 64 bytes, 8×8 grid, each byte covers a 4×4 tile block.
-    ;
-    ;   Attr rows 0-1  (tile rows  0-7,  upper sky area)   → palette 0
-    ;                  BG0: $11/$21/$31 — dark/medium/light blue
-    ;                  Fixes the "yellow sky" bug: all-palette-1 made the
-    ;                  sky tiles render in olive/greenish-yellow earth tones.
-    ;
-    ;   Attr rows 2-7  (tile rows 8-27+, ground fighting area) → palette 1
-    ;                  BG1: $08/$18/$28 — brown/tan/earth tones
-    ;
+    ; Attribute table — 64 bytes streamed straight from the converter's
+    ; computed stage_attribute_table (src/stage_bg.inc), which assigns
+    ; BG0 (sky)/BG1 (stone)/BG2 (foliage) per 16x16px quadrant based on
+    ; the source art. (Previously this routine wrote two hardcoded
+    ; uniform-palette loops -- sky on top, one earth palette on the
+    ; bottom -- and silently ignored the generated table entirely, which
+    ; is part of why foliage/stone couldn't be told apart on screen.)
     PPU_SETADDR $23C0
     ldx #0
-@attr_sky_loop:
-    lda #%00000000          ; All 4 quadrants = palette 0 (sky blues)
+@attr_loop:
+    lda stage_attribute_table, x
     sta PPU_DATA
     inx
-    cpx #16                 ; 16 bytes = 2 attr rows × 8 columns
-    bcc @attr_sky_loop
-@attr_ground_loop:
-    lda #%01010101          ; All 4 quadrants = palette 1 (earth tones)
-    sta PPU_DATA
-    inx
-    cpx #64                 ; Bytes 16–63 = attr rows 2-7
-    bcc @attr_ground_loop
+    cpx #64
+    bcc @attr_loop
 
     rts
 

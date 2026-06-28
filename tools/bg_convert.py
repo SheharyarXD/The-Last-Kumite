@@ -1,38 +1,64 @@
 #!/usr/bin/env python3
 """
-THE LAST KUMITE — Fight stage background conversion.
+THE LAST KUMITE — Fight stage background conversion (v2).
 
-Converts assets/32732.png (a 256x224 reference background image, exactly
-NES screen resolution) into a deduplicated NES background tileset plus a
-nametable layout, and writes a ca65 .inc file that LoadFightStage streams
-into the PPU instead of the old single-color placeholder bands.
+Converts assets/32732.png (256x224, exact NES screen resolution) into a
+deduplicated NES background tileset plus a nametable + attribute table,
+written to src/stage_bg.inc and streamed into the PPU by LoadFightStage.
 
-Tiles are quantized by luminance into 4 grayscale-ordered indices; the
-in-game attribute table then selects BG1 (ground earth tones, genuinely
-olive/brown on real NES hardware) to color them, since the source art's
-blue-gray/green coloring doesn't map onto any single existing NES palette
-by direct color matching -- luminance-based quantization preserves the
-image's shading/silhouette structure instead, which is the standard
-approach when source art wasn't authored in the target palette to begin
-with.
+--- Why v1 produced a wall of noise instead of a castle -----------------
+The previous version quantized every pixel into 4 GLOBAL brightness
+buckets and painted the whole lower 3/4 of the screen with a single
+"earth tone" palette. Two compounding problems:
 
-Two quality passes keep the result from reading as visual noise once it's
-squeezed into the 96-unique-tile budget:
+1. A single 3-color (+backdrop) palette cannot represent an image that
+   actually contains FOUR distinct hue families: blue sky, teal-grey
+   castle stone, green foliage, and the tan/brown ground band. Forcing
+   all of that into one earth-tone palette meant the converter had no
+   genuinely distinct *colors* left to draw the shapes with, only
+   distinct *brightness levels* -- so once tile-budget snapping kicked
+   in, the castle silhouette dissolved into a repeating noisy pattern.
+2. Bucketing by brightness PERCENTILE (equal population per bucket)
+   guarantees a fixed fraction of pixels always lands in index 0, which
+   is hard-wired on real NES hardware to a single shared backdrop color
+   -- regardless of whether those pixels actually belonged together.
 
-1. A small Gaussian blur runs BEFORE luminance bucketing. The source PNG
-   looks flat-color to the eye but actually carries thousands of distinct
-   per-pixel RGB values (texture/compression artifacts in the brick and
-   foliage areas), which the bucketing step turns into hundreds of
-   spuriously "unique" 8x8 tiles -- far more than the budget. Blurring
-   first merges that fine noise into smooth gradients, cutting the unique-
-   tile count roughly in half before dedup even runs, with no visible loss
-   of the actual silhouette (towers, clouds, tree line).
-2. Tiles beyond the 96 budget snap to the closest existing tile by full
-   8x8 pixel-pattern difference (sum of per-pixel index deltas), not by
-   single-number average brightness. Average-brightness snapping can pick
-   a totally differently-shaped tile that merely happens to average the
-   same brightness, which is what produced visible dithering/noise in the
-   ground area; pattern-difference snapping picks an actual shape match.
+--- The fix --------------------------------------------------------------
+This version assigns one of THREE region palettes per 16x16-pixel
+attribute quadrant (the same granularity the NES attribute table
+actually supports) based on that quadrant's dominant hue, then quantizes
+each pixel to the NEAREST color within its quadrant's assigned palette
+(real RGB distance, not a forced equal-population bucket):
+
+  BG0 "sky"     -- blue/white, used for quadrants that are mostly sky
+  BG1 "stone"   -- teal-grey ramp, used for castle/ground/pillars
+  BG2 "foliage" -- green ramp, used for tree/bush quadrants
+
+The top two attribute rows are always forced to "sky" (matches the
+reference art's clean horizon line). Below that, each quadrant is
+classified by comparing its average green-channel dominance against
+red/blue to tell foliage apart from stone. Because matching is nearest-
+*color* rather than population-equalized brightness, the shared backdrop
+slot only gets used by pixels that are actually close to black (mortar
+lines, window shadows) instead of a fixed guaranteed quarter of the
+image -- so structure stops disappearing.
+
+--- v2 still rendered the castle as a black silhouette -------------------
+Nearest-color matching alone wasn't enough: the source art's castle
+stone is genuinely dark (avg RGB ~10,40,50), which is legitimately
+closest to PAL_STONE's dark slot $0C. But $0C is one of the NES's
+darkest, most desaturated colors -- on real hardware/most emulator
+palettes it reads as almost indistinguishable from black ($0F). Since
+~70% of the castle body's pixels are that dark, nearly the whole
+structure collapsed into the same near-black tone as the mortar-line/
+shadow pixels that are *supposed* to use $0F, producing a flat
+silhouette instead of a shaded castle.
+SOURCE_BRIGHTNESS pre-boosts the image before quantizing (not just
+remapping the palette) so the castle's actual midtones land on the
+ramp's visibly-distinct mid/light slots ($1C/$2C) instead of piling
+into the near-black slot. This is a brightness lift, not a contrast
+stretch, specifically because a contrast stretch would also blow out
+the sky/cloud quadrants that were already well-exposed.
 
 Usage: python3 tools/bg_convert.py
 Reads:  assets/32732.png
@@ -41,7 +67,7 @@ Writes: chr/tiles_bg.chr (updated)
         src/stage_bg.inc
 """
 import os
-from PIL import Image, ImageFilter
+from PIL import Image, ImageFilter, ImageEnhance
 
 ROOT = os.path.join(os.path.dirname(__file__), "..")
 BG_IMAGE = os.path.join(ROOT, "assets", "32732.png")
@@ -51,33 +77,68 @@ OUT_INC = os.path.join(ROOT, "src", "stage_bg.inc")
 TILE_BYTES = 16
 BANK_BYTES = 4096
 TILES_W, TILES_H = 32, 28
-TILE_BASE = 32              # first free local tile index (2-31 used by existing UI borders)
-MAX_STAGE_TILES = 96         # fits exactly in the free 32-127 range (alphabet starts at 128)
-PRE_BLUR_RADIUS = 1.5        # removes per-pixel noise before bucketing (see module docstring)
+TILE_BASE = 32
+MAX_STAGE_TILES = 96
+PRE_BLUR_RADIUS = 1.0
+# Pre-quantization brightness lift (see "v2 still rendered the castle as
+# a black silhouette" above). 1.6 was picked empirically: low enough that
+# the already-bright sky/cloud quadrants don't clip to flat white, high
+# enough that the castle stone's dark midtones cross from PAL_STONE's
+# near-black slot ($0C) into its clearly-visible mid slot ($1C).
+SOURCE_BRIGHTNESS = 1.6
+
+NES_RGB = {
+    0x0F: (0, 0, 0),
+    0x21: (76, 154, 236), 0x31: (168, 204, 236), 0x20: (236, 238, 236),
+    0x0C: (0, 50, 60),    0x1C: (0, 102, 120),    0x2C: (56, 180, 204),
+    0x0A: (0, 64, 0),     0x1A: (8, 124, 0),       0x2A: (76, 208, 32),
+}
+
+BACKDROP = 0x0F
+PAL_SKY = [BACKDROP, 0x21, 0x31, 0x20]
+PAL_STONE = [BACKDROP, 0x0C, 0x1C, 0x2C]
+PAL_FOLIAGE = [BACKDROP, 0x0A, 0x1A, 0x2A]
+REGION_SKY, REGION_STONE, REGION_FOLIAGE = 0, 1, 2
+PALETTES = {REGION_SKY: PAL_SKY, REGION_STONE: PAL_STONE, REGION_FOLIAGE: PAL_FOLIAGE}
+SKY_ATTR_ROWS = 2
 
 
-def luminance(r, g, b):
-    return 0.299 * r + 0.587 * g + 0.114 * b
+def color_dist(c1, c2):
+    return (c1[0] - c2[0]) ** 2 + (c1[1] - c2[1]) ** 2 + (c1[2] - c2[2]) ** 2
 
 
-def quantize_by_luminance(img):
-    w, h = img.size
-    lum = [[0.0] * w for _ in range(h)]
-    lo, hi = 255.0, 0.0
-    for y in range(h):
-        for x in range(w):
-            r, g, b = img.getpixel((x, y))[:3]
-            v = luminance(r, g, b)
-            lum[y][x] = v
-            lo, hi = min(lo, v), max(hi, v)
-    span = max(hi - lo, 1.0)
-    out = [[0] * w for _ in range(h)]
-    for y in range(h):
-        for x in range(w):
-            t = (lum[y][x] - lo) / span
-            idx = min(3, int(t * 4))
-            out[y][x] = idx
-    return out
+def classify_region(avg_rgb):
+    r, g, b = avg_rgb
+    if g - max(r, b) > 12:
+        return REGION_FOLIAGE
+    return REGION_STONE
+
+
+def quantize_quadrant(img, qx, qy):
+    pixels = [img.getpixel((qx * 16 + x, qy * 16 + y))[:3]
+              for y in range(16) for x in range(16)]
+
+    attr_row = (qy * 16) // 32
+    if attr_row < SKY_ATTR_ROWS:
+        region = REGION_SKY
+    else:
+        avg = tuple(sum(c[i] for c in pixels) / len(pixels) for i in range(3))
+        region = classify_region(avg)
+
+    pal = PALETTES[region]
+    pal_rgb = [NES_RGB[c] for c in pal]
+
+    out = [[0] * 16 for _ in range(16)]
+    for y in range(16):
+        for x in range(16):
+            px = img.getpixel((qx * 16 + x, qy * 16 + y))[:3]
+            best_i, best_d = 0, None
+            for i, prgb in enumerate(pal_rgb):
+                d = color_dist(px, prgb)
+                if best_d is None or d < best_d:
+                    best_d, best_i = d, i
+            out[y][x] = best_i
+    return region, out
 
 
 def tile_to_2bpp(pixel_idx_8x8):
@@ -96,10 +157,6 @@ def tile_to_2bpp(pixel_idx_8x8):
 
 
 def pattern_diff(a, b):
-    """Sum of per-pixel index differences between two 8x8 blocks. Used as
-    the post-budget fallback metric instead of average brightness so the
-    closest *shape*, not just the closest single brightness number, gets
-    reused -- see module docstring point 2."""
     d = 0
     for ra, rb in zip(a, b):
         for va, vb in zip(ra, rb):
@@ -116,9 +173,20 @@ def main():
     img = Image.open(BG_IMAGE).convert("RGB")
     if img.size != (256, 224):
         img = img.resize((256, 224))
+    img = ImageEnhance.Brightness(img).enhance(SOURCE_BRIGHTNESS)
     img = img.filter(ImageFilter.GaussianBlur(radius=PRE_BLUR_RADIUS))
 
-    pix_idx = quantize_by_luminance(img)
+    QW, QH = TILES_W // 2, TILES_H // 2
+    quad_region = [[0] * QW for _ in range(QH)]
+    pix_idx = [[0] * (TILES_W * 8) for _ in range(TILES_H * 8)]
+
+    for qy in range(QH):
+        for qx in range(QW):
+            region, block = quantize_quadrant(img, qx, qy)
+            quad_region[qy][qx] = region
+            for y in range(16):
+                for x in range(16):
+                    pix_idx[qy * 16 + y][qx * 16 + x] = block[y][x]
 
     unique_tiles = {}
     tile_order = []
@@ -156,6 +224,17 @@ def main():
         f.write(bg_bank)
     print(f"Updated {BG_CHR} with {len(tile_order)} stage tiles starting at local {TILE_BASE}")
 
+    attr_bytes = []
+    for arow in range(8):
+        for acol in range(8):
+            byte = 0
+            for qi, (dqy, dqx) in enumerate([(0, 0), (0, 1), (1, 0), (1, 1)]):
+                qy = arow * 2 + dqy
+                qx = acol * 2 + dqx
+                region = quad_region[qy][qx] if qy < QH and qx < QW else REGION_STONE
+                byte |= (region & 3) << (qi * 2)
+            attr_bytes.append(byte)
+
     with open(OUT_INC, "w") as f:
         f.write("; AUTO-GENERATED by tools/bg_convert.py — DO NOT EDIT BY HAND\n")
         f.write("; Re-run `make bg` after changing assets/32732.png.\n\n")
@@ -164,23 +243,11 @@ def main():
         for ty in range(TILES_H):
             row_vals = [str(TILE_BASE + nametable[ty][tx]) for tx in range(TILES_W)]
             f.write(f"    .byte {', '.join(row_vals)}\n")
-        # Attribute table: 64 bytes (8 columns × 8 rows of 4×4 tile blocks).
-        # Upper 2 attribute rows (tile rows 0-7)  → palette 0 = sky blues.
-        # Lower 6 attribute rows (tile rows 8-27) → palette 1 = earth tones.
-        # %00000000 = all four 2×2 quadrants use palette 0.
-        # %01010101 = all four 2×2 quadrants use palette 1.
-        f.write("\nstage_attribute_table:\n")
-        attr_bytes = []
-        for attr_row in range(8):       # 8 attribute rows
-            if attr_row < 2:
-                val = "%00000000"       # palette 0 — sky blues ($11/$21/$31)
-            else:
-                val = "%01010101"       # palette 1 — earth tones ($08/$18/$28)
-            for _col in range(8):       # 8 attribute columns per row
-                attr_bytes.append(val)
-        # Emit as 8 .byte lines of 8 values each (64 bytes total)
+        f.write("\n; Per-quadrant region palette assignment (0=sky BG0, 1=stone BG1,\n")
+        f.write("; 2=foliage BG2), computed per 16x16px block from the source art.\n")
+        f.write("stage_attribute_table:\n")
         for i in range(0, 64, 8):
-            f.write("    .byte " + ", ".join(attr_bytes[i:i + 8]) + "\n")
+            f.write("    .byte " + ", ".join(f"%{b:08b}" for b in attr_bytes[i:i + 8]) + "\n")
 
     print(f"Wrote {OUT_INC}")
 
