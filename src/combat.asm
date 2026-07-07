@@ -30,13 +30,19 @@ UpdateCombat:
 
     ; --- Update combo display timer ---
     lda combo_display_t
-    beq @combat_done
+    beq @combo_done
     dec combo_display_t
-    bne @combat_done
+    bne @combo_done
     lda #0
     sta combo_count
+@combo_done:
 
     ; --- Update hit flash timers (player and enemy flash independently) ---
+    ; NOTE: this must run every frame regardless of combo state above.
+    ; It used to live after an early "beq @combat_done" that fired whenever
+    ; no combo was in progress (the common case), so these timers never
+    ; counted down and a hit character stayed stuck on the palette-3 flash
+    ; permanently instead of flashing briefly and returning to normal.
     lda plr_hit_flash_timer
     beq @pf_done
     dec plr_hit_flash_timer
