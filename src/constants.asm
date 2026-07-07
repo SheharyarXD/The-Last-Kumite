@@ -154,7 +154,7 @@ WALK_SPEED          = 1
 DASH_SPEED          = 3
 JUMP_VELOCITY       = -4
 GRAVITY             = 1
-GROUND_Y            = 160
+GROUND_Y            = 200
 
 ; =============================================================================
 ; AI TIMING
