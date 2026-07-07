@@ -152,7 +152,7 @@ KNOCKBACK_BLOCKED   = 1
 ; =============================================================================
 WALK_SPEED          = 1
 DASH_SPEED          = 3
-JUMP_VELOCITY       = -4
+JUMP_VELOCITY       = -8
 GRAVITY             = 1
 GROUND_Y            = 200
 

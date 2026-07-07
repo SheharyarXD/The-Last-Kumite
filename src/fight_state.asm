@@ -51,7 +51,8 @@ InitFight:
     sta combo_count
     sta combo_display_t
     sta hit_freeze
-    sta hit_flash_timer
+    sta plr_hit_flash_timer
+    sta en_hit_flash_timer
     sta special_effect_t
     sta stun_combo_active
     sta shake_timer

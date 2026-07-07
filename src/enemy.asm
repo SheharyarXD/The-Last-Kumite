@@ -823,7 +823,7 @@ RenderEnemy:
 @en_no_hflip:
 
     ; Hit flash (palette 3 = white flash)
-    lda hit_flash_timer
+    lda en_hit_flash_timer
     and #2
     beq @en_no_flash
     lda temp4

@@ -36,10 +36,14 @@ UpdateCombat:
     lda #0
     sta combo_count
 
-    ; --- Update hit flash timer ---
-    lda hit_flash_timer
+    ; --- Update hit flash timers (player and enemy flash independently) ---
+    lda plr_hit_flash_timer
+    beq @pf_done
+    dec plr_hit_flash_timer
+@pf_done:
+    lda en_hit_flash_timer
     beq @combat_done
-    dec hit_flash_timer
+    dec en_hit_flash_timer
 
 @combat_done:
     rts
@@ -118,9 +122,9 @@ CheckPlayerHitEnemy:
 @hs_set:
     sta hit_freeze
 
-    ; Set hit flash
+    ; Set hit flash (enemy was hit, so enemy flashes)
     lda #6
-    sta hit_flash_timer
+    sta en_hit_flash_timer
 
     ; Knockback
     lda plr_atk_type
@@ -228,7 +232,7 @@ CheckPlayerHitEnemy:
     lda #90
     sta special_effect_t
     lda #12
-    sta hit_flash_timer
+    sta en_hit_flash_timer
     jsr PlaySFXSpecialHit
     rts
 
@@ -356,9 +360,9 @@ CheckEnemyHitPlayer:
 @en_hs_set:
     sta hit_freeze
 
-    ; Hit flash
+    ; Hit flash (player was hit, so player flashes)
     lda #6
-    sta hit_flash_timer
+    sta plr_hit_flash_timer
 
     ; Knockback (opposite of enemy facing)
     lda en_atk_type

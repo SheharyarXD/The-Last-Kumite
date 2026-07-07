@@ -617,7 +617,7 @@ RenderPlayer:
 @no_hflip:
 
     ; Apply hit flash (palette 3 = white flash)
-    lda hit_flash_timer
+    lda plr_hit_flash_timer
     and #2
     beq @no_flash
     lda temp4
