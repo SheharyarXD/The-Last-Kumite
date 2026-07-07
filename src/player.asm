@@ -214,136 +214,17 @@ ApplyPlayerPhysics:
     rts
 
 ; =============================================================================
-; UPDATE PLAYER ANIMATION — Frame cycling based on state
+; UPDATE PLAYER ANIMATION — no-op now that every state has exactly 1 frame
 ; =============================================================================
+; The sprite tile budget for 16x32 characters only allows 9 unique poses
+; total (see tools/author_sprites.py / chr_convert.py tile-budget notes),
+; so every state now maps to a single static pose instead of a multi-frame
+; cycle. plr_frame is therefore always 0; this routine just guarantees
+; that (in case something upstream ever sets it non-zero) and returns.
 UpdatePlayerAnim:
-    ; Decrement frame timer
-    lda plr_frametimer
-    beq @cycle_frame
-    dec plr_frametimer
-    rts
-@cycle_frame:
-    ; Reset frame timer
-    lda #8                  ; 8 frames per anim frame
-    sta plr_frametimer
-
-    ; Advance animation frame based on state
-    ; NOTE: table holds full 16-bit addresses (.addr), so index = state * 2
-    lda plr_state
-    asl
-    tax
-    lda anim_table, x
-    sta temp1
-    lda anim_table+1, x
-    sta temp2
-    jmp (temp1)
-
-anim_table:
-    .addr AnimIdle      ; PLR_IDLE
-    .addr AnimWalk      ; PLR_WALK
-    .addr AnimCrouch    ; PLR_CROUCH
-    .addr AnimJump      ; PLR_JUMP
-    .addr AnimPunch     ; PLR_PUNCH
-    .addr AnimKick      ; PLR_KICK
-    .addr AnimBlock     ; PLR_BLOCK
-    .addr AnimHit       ; PLR_HIT
-    .addr AnimKO        ; PLR_KO
-    .addr AnimSpecial   ; PLR_SPECIAL
-    .addr AnimJumpKick  ; PLR_JUMPKICK
-    .addr AnimCPunch    ; PLR_CROUCH_PUNCH
-    .addr AnimCKick     ; PLR_CROUCH_KICK
-
-; =============================================================================
-; ANIMATION HANDLERS
-; =============================================================================
-
-AnimIdle:
-    lda plr_frame
-    eor #1                ; Toggle between 0 and 1
-    sta plr_frame
-    rts
-
-AnimWalk:
-    lda plr_frame
-    clc
-    adc #1
-    and #3                ; 4 frame walk cycle
-    sta plr_frame
-    rts
-
-AnimCrouch:
     lda #0
     sta plr_frame
     rts
-
-AnimJump:
-    ; Jump frame based on Y velocity
-    lda plr_vel_y
-    bpl @jump_down
-    lda #0                ; Rising frame
-    sta plr_frame
-    rts
-@jump_down:
-    lda #1                ; Falling frame
-    sta plr_frame
-    rts
-
-AnimPunch:
-    lda plr_frame
-    clc
-    adc #1
-    cmp #2
-    bcc @punch_store
-    lda #0
-@punch_store:
-    sta plr_frame
-    rts
-
-AnimKick:
-    lda plr_frame
-    clc
-    adc #1
-    cmp #3
-    bcc @kick_store
-    lda #0
-@kick_store:
-    sta plr_frame
-    rts
-
-AnimBlock:
-    lda #0
-    sta plr_frame
-    rts
-
-AnimHit:
-    lda #0
-    sta plr_frame
-    rts
-
-AnimKO:
-    lda #0
-    sta plr_frame
-    rts
-
-AnimSpecial:
-    lda plr_frame
-    clc
-    adc #1
-    cmp #4
-    bcc @special_store
-    lda #0
-@special_store:
-    sta plr_frame
-    rts
-
-AnimJumpKick:
-    jmp AnimJump
-
-AnimCPunch:
-    jmp AnimPunch
-
-AnimCKick:
-    jmp AnimKick
 
 ; =============================================================================
 ; BUILD PLAYER HURTBOX — Character body collision box
@@ -360,11 +241,11 @@ BuildPlayerHurtbox:
 
     lda plr_y
     clc
-    adc #2
+    adc #4
     sta plr_body_y1
     lda plr_y
     clc
-    adc #14
+    adc #28
     sta plr_body_y2
 
     ; Adjust for crouch
@@ -373,7 +254,7 @@ BuildPlayerHurtbox:
     bne @hurt_done
     lda plr_body_y2
     sec
-    sbc #4
+    sbc #8
     sta plr_body_y2
 @hurt_done:
     rts
@@ -440,11 +321,11 @@ hitbox_jump_table:
 @punch_y:
     lda plr_y
     clc
-    adc #4
+    adc #8
     sta plr_hitbox_y1
     lda plr_y
     clc
-    adc #12
+    adc #24
     sta plr_hitbox_y2
     rts
 
@@ -472,11 +353,11 @@ hitbox_jump_table:
 @kick_y:
     lda plr_y
     clc
-    adc #6
+    adc #12
     sta plr_hitbox_y1
     lda plr_y
     clc
-    adc #14
+    adc #28
     sta plr_hitbox_y2
     rts
 
@@ -504,11 +385,11 @@ hitbox_jump_table:
 @jump_y:
     lda plr_y
     clc
-    adc #4
+    adc #8
     sta plr_hitbox_y1
     lda plr_y
     clc
-    adc #14
+    adc #28
     sta plr_hitbox_y2
     rts
 
@@ -537,11 +418,11 @@ hitbox_jump_table:
 @spec_y:
     lda plr_y
     clc
-    adc #2
+    adc #4
     sta plr_hitbox_y1
     lda plr_y
     clc
-    adc #14
+    adc #28
     sta plr_hitbox_y2
     rts
 
@@ -568,11 +449,11 @@ hitbox_jump_table:
     sta plr_hitbox_x2
     lda plr_y
     clc
-    adc #8
+    adc #16
     sta plr_hitbox_y1
     lda plr_y
     clc
-    adc #14
+    adc #28
     sta plr_hitbox_y2
     rts
 
@@ -638,8 +519,9 @@ RenderPlayer:
 
 ; =============================================================================
 ; PLAYER SPRITE MAP — auto-generated, see tools/chr_convert.py
-; Maps (state x 4 + frame) -> BASE tile index (top-left of a 2x2 16x16
-; metasprite), LOCAL to sprite pattern table 1. The other 3 quadrants are
-; at base+1 (top-right), base+2 (bottom-left), base+3 (bottom-right).
+; Maps (state x 4 + frame) -> BASE tile index (top-left cell of a 2x4
+; 16x32 metasprite), LOCAL to sprite pattern table 1. The other 7 cells
+; follow at base+1..base+7, row by row top to bottom (see DrawMetasprite
+; in ppu.asm and tools/chr_convert.py).
 ; =============================================================================
 .include "sprite_tiles_player.inc"

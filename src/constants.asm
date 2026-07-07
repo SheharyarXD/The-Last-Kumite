@@ -154,7 +154,10 @@ WALK_SPEED          = 1
 DASH_SPEED          = 3
 JUMP_VELOCITY       = -8
 GRAVITY             = 1
-GROUND_Y            = 200
+GROUND_Y            = 184  ; was 200; raised 16px so a 16x32 sprite's feet
+                            ; still land on the same visual floor line
+                            ; (200 + old 16px height = 216 floor row;
+                            ;  184 + new 32px height = 216 floor row)
 
 ; =============================================================================
 ; AI TIMING
@@ -180,9 +183,9 @@ ENEMY_START_X       = 196
 OAM_BUF             = $0200
 SPRITE_SIZE         = 4       ; bytes per sprite (Y, tile, attr, X)
 MAX_SPRITES         = 64
-METASPRITE_W        = 2       ; tiles wide
-METASPRITE_H        = 2       ; tiles tall
-SPRITES_PER_CHAR    = 4       ; 2x2 metasprite
+METASPRITE_W        = 2       ; tiles wide  (16px)
+METASPRITE_H        = 4       ; tiles tall  (32px) -- was 2 (16px)
+SPRITES_PER_CHAR    = 8       ; 2x4 metasprite -- was 4 (2x2)
 
 ; =============================================================================
 ; INPUT BUTTON BITS

@@ -567,63 +567,13 @@ ApplyEnemyPhysics:
     rts
 
 ; =============================================================================
-; UPDATE ENEMY ANIMATION
+; UPDATE ENEMY ANIMATION — no-op now that every state has exactly 1 frame
 ; =============================================================================
+; Same tile-budget constraint as the player (see player.asm UpdatePlayerAnim
+; comment / tools/author_sprites.py) -- en_frame is always 0.
 UpdateEnemyAnim:
-    dec en_frametimer
-    bne @en_anim_done
-    lda #8
-    sta en_frametimer
-
-    ; Advance frame based on state
-    lda en_state
-    cmp #EN_STATE_IDLE
-    beq @en_anim_idle
-    cmp #EN_STATE_WALK
-    beq @en_anim_walk
-    cmp #EN_STATE_PUNCH
-    beq @en_anim_punch
-    cmp #EN_STATE_KICK
-    beq @en_anim_kick
-    jmp @en_anim_done
-
-@en_anim_idle:
-    lda en_frame
-    eor #1
-    sta en_frame
-    rts
-
-@en_anim_walk:
-    lda en_frame
-    clc
-    adc #1
-    and #3
-    sta en_frame
-    rts
-
-@en_anim_punch:
-    lda en_frame
-    clc
-    adc #1
-    cmp #2
-    bcc @en_p_store
     lda #0
-@en_p_store:
     sta en_frame
-    rts
-
-@en_anim_kick:
-    lda en_frame
-    clc
-    adc #1
-    cmp #3
-    bcc @en_k_store
-    lda #0
-@en_k_store:
-    sta en_frame
-    rts
-
-@en_anim_done:
     rts
 
 ; =============================================================================
@@ -640,11 +590,11 @@ BuildEnemyHurtbox:
     sta en_body_x2
     lda en_y
     clc
-    adc #2
+    adc #4
     sta en_body_y1
     lda en_y
     clc
-    adc #14
+    adc #28
     sta en_body_y2
     rts
 
@@ -700,11 +650,11 @@ en_hitbox_jump_table:
     sta en_hitbox_x2
     lda en_y
     clc
-    adc #4
+    adc #8
     sta en_hitbox_y1
     lda en_y
     clc
-    adc #12
+    adc #24
     sta en_hitbox_y2
     rts
 
@@ -731,11 +681,11 @@ en_hitbox_jump_table:
     sta en_hitbox_x2
     lda en_y
     clc
-    adc #6
+    adc #12
     sta en_hitbox_y1
     lda en_y
     clc
-    adc #14
+    adc #28
     sta en_hitbox_y2
     rts
 
@@ -760,11 +710,11 @@ en_hitbox_jump_table:
     sta en_hitbox_x2
     lda en_y
     clc
-    adc #4
+    adc #8
     sta en_hitbox_y1
     lda en_y
     clc
-    adc #12
+    adc #24
     sta en_hitbox_y2
     rts
 
@@ -780,11 +730,11 @@ en_hitbox_jump_table:
     sta en_hitbox_x2
     lda en_y
     sec
-    sbc #8
+    sbc #16
     sta en_hitbox_y1
     lda en_y
     clc
-    adc #8
+    adc #16
     sta en_hitbox_y2
     rts
 
@@ -844,7 +794,7 @@ RenderEnemy:
 
 ; =============================================================================
 ; ENEMY SPRITE MAP — auto-generated, see tools/chr_convert.py
-; Maps (state x 4 + frame) -> BASE tile index (top-left of a 2x2 16x16
+; Maps (state x 4 + frame) -> BASE tile index (top-left of a 2x4 16x32
 ; metasprite), LOCAL to sprite pattern table 1.
 ; =============================================================================
 .include "sprite_tiles_enemy.inc"

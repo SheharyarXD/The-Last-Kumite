@@ -2,16 +2,16 @@
 ; Re-run `make chr` after changing chr/src_frames/michael_sheet.png.
 
 player_spritemap:
-    .byte 0, 4, 0, 0  ; PLR_IDLE
-    .byte 8, 12, 16, 20  ; PLR_WALK
-    .byte 24, 24, 24, 24  ; PLR_CROUCH
-    .byte 28, 32, 28, 28  ; PLR_JUMP
-    .byte 36, 40, 36, 36  ; PLR_PUNCH
-    .byte 44, 48, 52, 44  ; PLR_KICK
-    .byte 56, 56, 56, 56  ; PLR_BLOCK
-    .byte 60, 60, 60, 60  ; PLR_HIT
-    .byte 64, 64, 64, 64  ; PLR_KO
-    .byte 40, 36, 40, 36  ; PLR_SPECIAL
-    .byte 48, 48, 48, 48  ; PLR_JUMPKICK
-    .byte 24, 24, 24, 24  ; PLR_CROUCH_PUNCH
-    .byte 24, 24, 24, 24  ; PLR_CROUCH_KICK
+    .byte 0, 0, 0, 0  ; PLR_IDLE
+    .byte 8, 8, 8, 8  ; PLR_WALK
+    .byte 16, 16, 16, 16  ; PLR_CROUCH
+    .byte 24, 24, 24, 24  ; PLR_JUMP
+    .byte 32, 32, 32, 32  ; PLR_PUNCH
+    .byte 40, 40, 40, 40  ; PLR_KICK
+    .byte 16, 16, 16, 16  ; PLR_BLOCK
+    .byte 48, 48, 48, 48  ; PLR_HIT
+    .byte 56, 56, 56, 56  ; PLR_KO
+    .byte 32, 32, 32, 32  ; PLR_SPECIAL
+    .byte 40, 40, 40, 40  ; PLR_JUMPKICK
+    .byte 16, 16, 16, 16  ; PLR_CROUCH_PUNCH
+    .byte 16, 16, 16, 16  ; PLR_CROUCH_KICK

@@ -51,10 +51,11 @@ render_flag         = $0022     ; 1 = rendering enabled this frame
 bg_update_ptr       = $0023     ; BG update data pointer (16-bit)
 bg_update_count     = $0024     ; BG update ENTRIES pending this frame (3 bytes/entry)
 bg_update_byte_idx  = $0028     ; Next free BYTE offset into bg_update_buf (producer-side)
-temp_quad_left_top  = $0029     ; DrawMetasprite scratch: resolved tile index, top-left cell
-temp_quad_right_top = $002A     ; DrawMetasprite scratch: resolved tile index, top-right cell
-temp_quad_left_bot  = $002B     ; DrawMetasprite scratch: resolved tile index, bottom-left cell
-temp_quad_right_bot = $002C     ; DrawMetasprite scratch: resolved tile index, bottom-right cell
+temp_quad_left_top  = $0029     ; DrawMetasprite scratch: resolved tile index, left tile of current row
+temp_quad_right_top = $002A     ; DrawMetasprite scratch: resolved tile index, right tile of current row
+ms_row_y            = $002B     ; DrawMetasprite scratch: current row's screen Y (was temp_quad_left_bot)
+ms_row_tile         = $002D     ; DrawMetasprite scratch: current row's base tile index
+ms_row_count        = $002E     ; DrawMetasprite scratch: row loop counter (0-3, 4 rows for 16x32)
 bg_update_ptr_hi    = $0025
 vs_scroll_pos       = $0026     ; VS screen scroll
 

@@ -372,73 +372,66 @@ DrawTextBuffered:
 ;  incompatible buffer format. See DrawPlayerBar/DrawEnemyBar in hud.asm.)
 
 ; =============================================================================
-; DRAW METASPRITE — Draw a 2x2 (16x16) character sprite to OAM
+; DRAW METASPRITE — Draw a 2x4 (16x32) character sprite to OAM
 ; =============================================================================
-; Input: A = BASE tile index (top-left quadrant, LOCAL to sprite pattern
+; Input: A = BASE tile index (top-left cell, LOCAL to sprite pattern
 ;        table 1), X = screen X (left edge), Y = screen Y (top edge),
 ;        temp4 = OAM attribute byte (palette bits + flip bits). Caller sets
 ;        temp4 before calling — see RenderPlayer/RenderEnemy for the
 ;        horizontal-flip convention (bit 6 of temp4 set = facing left).
-; Tile layout (consecutive from the base index): +0 top-left, +1 top-right,
-; +2 bottom-left, +3 bottom-right — see tools/chr_convert.py.
+; Tile layout (consecutive from the base index, 8 tiles total, 2 wide x 4
+; tall): row0 = +0 (left) +1 (right), row1 = +2/+3, row2 = +4/+5,
+; row3 = +6/+7 — top to bottom — see tools/chr_convert.py.
 .export DrawMetasprite
 DrawMetasprite:
     stx temp1               ; X position (left edge)
     sty temp2                ; Y position (top edge)
-    sta temp3                ; Base tile index
+    sta temp3                ; Base tile index (row 0)
 
-    ; Check if OAM has room for 4 more sprites (16 bytes) without wrapping
+    ; Check if OAM has room for 8 more sprites (32 bytes) without wrapping
     lda oam_index
-    cmp #240                ; 256 - 16 = 240
+    cmp #224                ; 256 - 32 = 224
     bcc @ms_room
     rts
 @ms_room:
 
     ldx oam_index
 
-    ; Determine left/right quadrant order: normally TL=+0/TR=+1 on the
-    ; left/right respectively; horizontally flipped, swap which tile goes
-    ; on which side (the hardware flip bit mirrors each tile's own pixels,
-    ; but the two halves must also swap positions or the sprite would show
-    ; its right-side art on the left and vice versa).
+    lda temp2
+    sta ms_row_y             ; running row Y, starts at top edge
+    lda temp3
+    sta ms_row_tile          ; running row base tile, starts at base index
+    lda #0
+    sta ms_row_count
+
+@ms_row_loop:
+    ; Determine left/right tile for THIS row: normally left=+0/right=+1;
+    ; horizontally flipped, swap which tile goes on which side (the
+    ; hardware flip bit mirrors each tile's own pixels, but the two
+    ; halves must also swap positions or the sprite would show its
+    ; right-side art on the left and vice versa). Row order (top to
+    ; bottom) is unaffected — this is a horizontal flip only.
     lda temp4
     and #%01000000
-    beq @ms_not_flipped
-    ; Flipped: left column shows tile +1/+3, right column shows tile +0/+2
-    lda temp3
+    beq @ms_row_not_flipped
+    lda ms_row_tile
     clc
     adc #1
+    sta temp_quad_left_top    ; left tile shown this row
+    lda ms_row_tile
+    sta temp_quad_right_top   ; right tile shown this row
+    jmp @ms_row_tiles_set
+@ms_row_not_flipped:
+    lda ms_row_tile
     sta temp_quad_left_top
-    lda temp3
-    sta temp_quad_right_top
-    lda temp3
-    clc
-    adc #3
-    sta temp_quad_left_bot
-    lda temp3
-    clc
-    adc #2
-    sta temp_quad_right_bot
-    jmp @ms_quads_set
-@ms_not_flipped:
-    lda temp3
-    sta temp_quad_left_top
-    lda temp3
+    lda ms_row_tile
     clc
     adc #1
     sta temp_quad_right_top
-    lda temp3
-    clc
-    adc #2
-    sta temp_quad_left_bot
-    lda temp3
-    clc
-    adc #3
-    sta temp_quad_right_bot
-@ms_quads_set:
+@ms_row_tiles_set:
 
-    ; --- Top-left ---
-    lda temp2
+    ; --- Left tile of this row ---
+    lda ms_row_y
     sta OAM_BUF, x
     inx
     lda temp_quad_left_top
@@ -451,8 +444,8 @@ DrawMetasprite:
     sta OAM_BUF, x
     inx
 
-    ; --- Top-right ---
-    lda temp2
+    ; --- Right tile of this row ---
+    lda ms_row_y
     sta OAM_BUF, x
     inx
     lda temp_quad_right_top
@@ -467,39 +460,19 @@ DrawMetasprite:
     sta OAM_BUF, x
     inx
 
-    ; --- Bottom-left ---
-    lda temp2
+    ; Advance to next row: Y += 8px, tile base += 2 (next pair of tiles)
+    lda ms_row_y
     clc
     adc #8
-    sta OAM_BUF, x
-    inx
-    lda temp_quad_left_bot
-    sta OAM_BUF, x
-    inx
-    lda temp4
-    sta OAM_BUF, x
-    inx
-    lda temp1
-    sta OAM_BUF, x
-    inx
-
-    ; --- Bottom-right ---
-    lda temp2
+    sta ms_row_y
+    lda ms_row_tile
     clc
-    adc #8
-    sta OAM_BUF, x
-    inx
-    lda temp_quad_right_bot
-    sta OAM_BUF, x
-    inx
-    lda temp4
-    sta OAM_BUF, x
-    inx
-    lda temp1
-    clc
-    adc #8
-    sta OAM_BUF, x
-    inx
+    adc #2
+    sta ms_row_tile
+    inc ms_row_count
+    lda ms_row_count
+    cmp #4                  ; 4 rows = 32px tall
+    bcc @ms_row_loop
 
     stx oam_index
 @ms_done:

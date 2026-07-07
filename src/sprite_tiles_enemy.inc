@@ -2,12 +2,12 @@
 ; Re-run `make chr` after changing chr/src_frames/lightning_sheet.png.
 
 enemy_spritemap:
-    .byte 68, 72, 68, 68  ; EN_STATE_IDLE
-    .byte 76, 80, 84, 88  ; EN_STATE_WALK
-    .byte 104, 108, 104, 104  ; EN_STATE_PUNCH
-    .byte 112, 116, 120, 112  ; EN_STATE_KICK
-    .byte 124, 124, 124, 124  ; EN_STATE_BLOCK
-    .byte 128, 128, 128, 128  ; EN_STATE_HIT
-    .byte 132, 132, 132, 132  ; EN_STATE_KO
-    .byte 80, 88, 80, 80  ; EN_STATE_DASH
-    .byte 96, 100, 96, 96  ; EN_STATE_JUMP
+    .byte 64, 64, 64, 64  ; EN_STATE_IDLE
+    .byte 72, 72, 72, 72  ; EN_STATE_WALK
+    .byte 96, 96, 96, 96  ; EN_STATE_PUNCH
+    .byte 104, 104, 104, 104  ; EN_STATE_KICK
+    .byte 80, 80, 80, 80  ; EN_STATE_BLOCK
+    .byte 112, 112, 112, 112  ; EN_STATE_HIT
+    .byte 120, 120, 120, 120  ; EN_STATE_KO
+    .byte 72, 72, 72, 72  ; EN_STATE_DASH
+    .byte 88, 88, 88, 88  ; EN_STATE_JUMP

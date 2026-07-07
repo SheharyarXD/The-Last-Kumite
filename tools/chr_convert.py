@@ -53,13 +53,16 @@ def tile_to_2bpp(pixel_idx_8x8):
     return bytes(lo) + bytes(hi)
 
 
-def sprite16_to_tiles(pixel_idx_16x16):
-    quads = []
-    for qy in (0, 8):
+def sprite16x32_to_tiles(pixel_idx_16x32):
+    """Slice a 16x32 authored frame into 8 tiles, 2 wide x 4 tall, in the
+    same row-major order DrawMetasprite (ppu.asm) expects: row0 left/right,
+    row1 left/right, row2 left/right, row3 left/right (top to bottom)."""
+    tiles = []
+    for qy in (0, 8, 16, 24):
         for qx in (0, 8):
-            block = [[pixel_idx_16x16[qy + y][qx + x] for x in range(8)] for y in range(8)]
-            quads.append(tile_to_2bpp(block))
-    return [quads[0], quads[1], quads[2], quads[3]]
+            block = [[pixel_idx_16x32[qy + y][qx + x] for x in range(8)] for y in range(8)]
+            tiles.append(tile_to_2bpp(block))
+    return tiles
 
 
 def quantize_5_to_4(img, gi_rgb):
@@ -127,7 +130,7 @@ def build_static_tile_block(img, color1, color2, color3):
     """Convert an arbitrary-sized (multiple-of-8 in both dimensions) RGBA
     image into a flat list of 2bpp tile bytes, reading left-to-right,
     top-to-bottom in 8x8 cells -- i.e. NOT the 2x2-quad metasprite order
-    sprite16_to_tiles uses for animation frames, since these are static
+    sprite16x32_to_tiles uses for animation frames, since these are static
     images drawn once by a dedicated render routine that walks tiles in
     simple raster order."""
     w, h = img.size
@@ -149,6 +152,12 @@ def load_frames(name):
         names = [l.strip() for l in f if l.strip()]
     n = len(names)
     frame_w = sheet.width // n
+    if frame_w != 16 or sheet.height != 32:
+        raise SystemExit(
+            f"ERROR: {sheet_path} frames must be 16x32 (2x4 tiles) for the "
+            f"current 16x32 character sprite size, got {frame_w}x{sheet.height}. "
+            f"Re-author the sprite sheet at 16px wide x 32px tall per frame."
+        )
     frames = []
     for i, fname in enumerate(names):
         frame = sheet.crop((i * frame_w, 0, (i + 1) * frame_w, sheet.height))
@@ -162,9 +171,9 @@ def build_sprite_bank(name, gi_rgb):
     index_map = {}
     for fname, img in frames:
         pix = quantize_5_to_4(img, gi_rgb)
-        quad_tiles = sprite16_to_tiles(pix)
+        frame_tiles = sprite16x32_to_tiles(pix)
         index_map[fname] = len(tiles)
-        tiles.extend(quad_tiles)
+        tiles.extend(frame_tiles)
     return tiles, index_map
 
 
@@ -196,8 +205,8 @@ def main():
         sprite_bank[offset:offset + TILE_BYTES] = t
         offset += TILE_BYTES
 
-    print(f"Michael: {len(michael_tiles)//4} frames, {len(michael_tiles)} tiles, base local index {michael_base}")
-    print(f"Lightning: {len(lightning_tiles)//4} frames, {len(lightning_tiles)} tiles, base local index {lightning_base}")
+    print(f"Michael: {len(michael_tiles)//8} frames, {len(michael_tiles)} tiles, base local index {michael_base}")
+    print(f"Lightning: {len(lightning_tiles)//8} frames, {len(lightning_tiles)} tiles, base local index {lightning_base}")
     next_free = offset // TILE_BYTES
     print(f"Next free local tile index: {next_free}")
 
@@ -240,6 +249,15 @@ def main():
             continue
         img = load_static_image(filename)
         tiles, (tiles_w, tiles_h) = build_static_tile_block(img, *colors)
+        # If any reserved tile would fall INSIDE this image's contiguous
+        # run (not just immediately at the cursor), push the whole image
+        # to start after it, rather than letting next_free_tile() skip
+        # a single index mid-run and fragment the block. Where exactly a
+        # reserved tile lands shifts whenever the fighter/effect tile
+        # budget above changes (e.g. after the 16x32 sprite rework), so
+        # this has to be a range check, not a single skip.
+        while any(r in range(static_cursor, static_cursor + len(tiles)) for r in RESERVED_TILES):
+            static_cursor += 1
         placed_indices = []
         for t in tiles:
             idx = next_free_tile()
@@ -250,10 +268,10 @@ def main():
                 )
             sprite_bank[idx * TILE_BYTES:idx * TILE_BYTES + TILE_BYTES] = t
             placed_indices.append(idx)
-        # These images are always placed in one contiguous run in practice
-        # (the only reserved tile, 242, falls after all three at current
-        # sizes); assert that here so a future size change that would
-        # actually fragment the block fails loudly instead of silently
+        # These images should always land as one contiguous run now that
+        # the loop above pushes past any reserved tile that would have
+        # fallen mid-image; assert that here so a future size change that
+        # somehow still fragments a block fails loudly instead of silently
         # emitting a wrong base index.
         if placed_indices != list(range(placed_indices[0], placed_indices[0] + len(placed_indices))):
             raise SystemExit(
@@ -318,31 +336,33 @@ def main():
             lines.append(f"    .byte {', '.join(vals)}  ; {state_name}")
         return "\n".join(lines)
 
+    # 8 unique frames/character (see author_sprites.py build_sheet). Every
+    # state points at a single static pose; BLOCK reuses CROUCH's pose.
     player_frame_order = [
-        ("PLR_IDLE", ["idle0", "idle1"]),
-        ("PLR_WALK", ["walk0", "walk1", "walk2", "walk3"]),
+        ("PLR_IDLE", ["idle0"]),
+        ("PLR_WALK", ["walk0"]),
         ("PLR_CROUCH", ["crouch0"]),
-        ("PLR_JUMP", ["jump0", "jump1"]),
-        ("PLR_PUNCH", ["punch0", "punch1"]),
-        ("PLR_KICK", ["kick0", "kick1", "kick2"]),
-        ("PLR_BLOCK", ["block0"]),
+        ("PLR_JUMP", ["jump0"]),
+        ("PLR_PUNCH", ["punch0"]),
+        ("PLR_KICK", ["kick0"]),
+        ("PLR_BLOCK", ["crouch0"]),
         ("PLR_HIT", ["hit0"]),
         ("PLR_KO", ["ko0"]),
-        ("PLR_SPECIAL", ["punch1", "punch0", "punch1", "punch0"]),
-        ("PLR_JUMPKICK", ["kick1"]),
+        ("PLR_SPECIAL", ["punch0"]),
+        ("PLR_JUMPKICK", ["kick0"]),
         ("PLR_CROUCH_PUNCH", ["crouch0"]),
         ("PLR_CROUCH_KICK", ["crouch0"]),
     ]
     enemy_frame_order = [
-        ("EN_STATE_IDLE", ["idle0", "idle1"]),
-        ("EN_STATE_WALK", ["walk0", "walk1", "walk2", "walk3"]),
-        ("EN_STATE_PUNCH", ["punch0", "punch1"]),
-        ("EN_STATE_KICK", ["kick0", "kick1", "kick2"]),
-        ("EN_STATE_BLOCK", ["block0"]),
+        ("EN_STATE_IDLE", ["idle0"]),
+        ("EN_STATE_WALK", ["walk0"]),
+        ("EN_STATE_PUNCH", ["punch0"]),
+        ("EN_STATE_KICK", ["kick0"]),
+        ("EN_STATE_BLOCK", ["crouch0"]),
         ("EN_STATE_HIT", ["hit0"]),
         ("EN_STATE_KO", ["ko0"]),
-        ("EN_STATE_DASH", ["walk1", "walk3"]),
-        ("EN_STATE_JUMP", ["jump0", "jump1"]),
+        ("EN_STATE_DASH", ["walk0"]),
+        ("EN_STATE_JUMP", ["jump0"]),
     ]
 
     with open(OUT_INC_CONSTANTS, "w") as f:

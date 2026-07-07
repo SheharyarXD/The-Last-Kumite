@@ -46,7 +46,13 @@ LIGHTNING_PALETTE = {
     "dark":   (20, 18, 18),
 }
 
-W, H = 16, 16
+W, H = 16, 32
+# NOTE: canvas is now 16x32 (was 16x16) to match the new character sprite
+# size, but the pose-drawing functions below still place pixels using the
+# OLD 16x16 coordinate space. This script will run and produce 16x32 PNGs,
+# but every pose will look squashed into the top half of the canvas until
+# each pose function is re-authored (or its coordinates rescaled) for the
+# taller canvas. Treat this as a placeholder, not finished art.
 
 
 def blank():
@@ -213,22 +219,19 @@ def draw_ko(pal):
 
 
 def build_sheet(pal):
+    # Trimmed to 8 unique frames (one pose per state, with BLOCK reusing
+    # the CROUCH pose since both are low defensive stances) so both
+    # fighters fit in the sprite pattern table at 16x32 (8 tiles/frame)
+    # WITH enough margin left to absorb the ~13-tile gap the reserved
+    # sparkle tile (title.asm, local tile 242) forces around the VS
+    # portraits -- see tools/chr_convert.py tile-budget notes.
     frames = []
     frames.append(("idle0", draw_idle(pal, 0)))
-    frames.append(("idle1", draw_idle(pal, 1)))
     frames.append(("walk0", draw_walk(pal, 0)))
-    frames.append(("walk1", draw_walk(pal, 1)))
-    frames.append(("walk2", draw_walk(pal, 2)))
-    frames.append(("walk3", draw_walk(pal, 3)))
     frames.append(("crouch0", draw_crouch(pal)))
     frames.append(("jump0", draw_jump(pal, 0)))
-    frames.append(("jump1", draw_jump(pal, 1)))
     frames.append(("punch0", draw_punch(pal, 0)))
-    frames.append(("punch1", draw_punch(pal, 1)))
     frames.append(("kick0", draw_kick(pal, 0)))
-    frames.append(("kick1", draw_kick(pal, 1)))
-    frames.append(("kick2", draw_kick(pal, 2)))
-    frames.append(("block0", draw_block(pal)))
     frames.append(("hit0", draw_hit(pal)))
     frames.append(("ko0", draw_ko(pal)))
     return frames
@@ -240,7 +243,7 @@ def main():
 
     for name, pal in [("michael", MICHAEL_PALETTE), ("lightning", LIGHTNING_PALETTE)]:
         frames = build_sheet(pal)
-        sheet = Image.new("RGBA", (16 * len(frames), 16), TRANSPARENT)
+        sheet = Image.new("RGBA", (16 * len(frames), H), TRANSPARENT)
         for i, (fname, img) in enumerate(frames):
             sheet.paste(img, (i * 16, 0))
         sheet_path = os.path.join(out_dir, f"{name}_sheet.png")
