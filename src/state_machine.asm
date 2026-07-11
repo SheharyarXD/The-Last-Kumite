@@ -34,6 +34,21 @@ InitTitle:
     lda #$30
     sta PPU_DATA
 
+    ; BG0 ($3F01-$3F03) is shared with the fight stage's sky, which is
+    ; a dark navy tuned for night-stage art (see init.asm). Title/menu
+    ; text is drawn on BG0 too (see DrawText calls below), so a dark
+    ; navy fill would make the black-outlined text nearly unreadable
+    ; against it. Re-point BG0 at a bright, high-contrast blue here --
+    ; readability, not matching the fight stage's sky, is what matters
+    ; on a text-only menu screen.
+    PPU_SETADDR $3F01
+    lda #$21
+    sta PPU_DATA
+    lda #$31
+    sta PPU_DATA
+    lda #$20
+    sta PPU_DATA
+
     ; Clear screen
     lda #0
     sta nametable
@@ -454,6 +469,17 @@ HandleGameOver:
 .export InitMenu
 InitMenu:
     RENDER_OFF
+
+    ; BG0 ($3F01-$3F03) — see InitTitle's identical fix above: menu text
+    ; is drawn on BG0, so it needs the bright blue, not the fight
+    ; stage's dark navy sky color.
+    PPU_SETADDR $3F01
+    lda #$21
+    sta PPU_DATA
+    lda #$31
+    sta PPU_DATA
+    lda #$20
+    sta PPU_DATA
 
     ; Default cursor to CONTINUE
     lda #0

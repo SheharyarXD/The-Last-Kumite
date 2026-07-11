@@ -21,14 +21,25 @@
 ;
 ; BACKGROUND TILES ($0000-$0FFF):
 ;   $00-$01:   Blank / space tiles
-;   $02:       Empty health bar segment
-;   $03:       Filled health bar segment (red)
-;   $04:       Filled health bar segment (blue)
-;   $05-$0F:   UI border tiles
+;   $02:       Health bar track (empty, borderless -- solid "unlit" black,
+;              same color as universal backdrop so consecutive empty tiles
+;              blend into one continuous track instead of a row of boxes)
+;   $03:       Health bar, fully filled tile -- player (solid $26 orange-red)
+;   $04:       Health bar, fully filled tile -- enemy (solid $11 blue)
+;   $05-$0B:   Health bar PARTIAL-fill tiles -- player, 1/8..7/8 columns
+;              filled left-to-right in $26 orange-red, remainder in track
+;              color. Combined with $02 (0/8) and $03 (8/8) this gives the
+;              bar 8 sub-steps of resolution per tile (80 steps across the
+;              full 10-tile/100 HP bar) so HP drains as one smooth ramp
+;              instead of jumping a whole tile at a time. See hud.asm
+;              CalcBarEighths / bar-draw loop.
+;   $0C-$0F:   UI border tiles (unused, reserved)
 ;   $10-$11:   Ground tiles
 ;   $12:       Sky tile
 ;   $13-$14:   Wall/building tiles
-;   $15-$1F:   Reserved
+;   $15-$1B:   Health bar PARTIAL-fill tiles -- enemy, same scheme as
+;              $05-$0B but filled in $11 blue
+;   $1C-$1F:   Reserved
 ;   $20-$7F:   Stage background tiles
 ;   $80-$9F:   Alphabet tiles (A-Z)
 ;   $A0-$A9:   Number tiles (0-9)

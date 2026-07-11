@@ -146,7 +146,12 @@ default_palette:
     ; of forcing a fixed fraction of the image into this slot, so a rare,
     ; intentional black no longer means "erase a quarter of the screen".
     .byte $0F               ; $3F00 Universal background (black)
-    .byte $21, $31, $20     ; $3F01-$3F03 BG0: Sky — mid-blue/light-blue/cloud-white
+    .byte $02, $21, $20     ; $3F01-$3F03 BG0: Sky — dark navy/mid-blue/cloud-white
+    ; (FIX: was $21/$31/$20 -- no dark color meant this night sky's dominant
+    ; near-black-navy pixels were nearest-matching to Stone's dark teal
+    ; instead, which is why the sky rendered greenish-teal instead of blue.
+    ; $02 is a close match (RGB (8,16,144) vs the art's dominant (0,11,139))
+    ; and $31 was barely used, so nothing else changes.)
     .byte $0F
     ; BG1 recolored from earth-tone orange to a teal-grey stone ramp to
     ; match the castle/ground masonry in assets/32732.png.
@@ -161,7 +166,9 @@ default_palette:
     .byte $0F
     ; FIX: HUD palette — $26=orange-red for health bar borders, $30=white for text
     ; was $00/$10/$30 which produced dark-grey/grey/white — health bars barely visible
-    .byte $26, $30, $3D     ; $3F0D-$3F0F BG3: HUD/UI (FIXED: was $00/$10/$30)
+    .byte $26, $30, $11     ; $3F0D-$3F0F BG3: HUD -- player bar=red($26),
+    ; text=white($30), enemy bar=blue($11) (was $3D pale yellow-green,
+    ; unused -- repurposed so the two health bars are clearly red vs blue)
 
     ; Sprite palettes ($3F10-$3F1F)
     .byte $0F               ; $3F10 Sprite 0 transparent

@@ -1,5 +1,5 @@
 ; =============================================================================
-; HEALTH BAR PALETTE NOTE (BUG FIX):
+; HEALTH BAR PALETTE NOTE (BUG FIX, historical):
 ; NES BG tile color comes from the attribute table, NOT from the tile index.
 ; The attribute table in stage_bg.inc rows 0-1 (top HUD area, rows 0-3 of
 ; nametable) were set to 0x00 = palette 0 (sky blues) which made health bars
@@ -7,14 +7,24 @@
 ;
 ; FIX APPLIED IN stage_bg.inc:
 ;   stage_attribute_table byte 0: changed to %11001100 so columns 0-7 and
-;   16-23 (health bar columns) use palette 3 (HUD: red/white/orange).
+;   16-23 (health bar columns) use palette 3 (HUD).
 ;   The center columns use palette 0 (sky) for the timer area.
 ;
-; FIX APPLIED IN init.asm BG3 palette:
-;   $3F0C: $0F (transparent/black) — background of bars
-;   $3F0D: $26 (orange-red) — filled health tile border/glow
-;   $3F0E: $30 (white) — text / name color
-;   $3F0F: $3D (pale yellow-green) — accent
+; BG3 palette actually used by the health bar (init.asm default_palette):
+;   $3F0C: $0F (black) — track/empty color (also universal backdrop)
+;   $3F0D: $26 (orange-red) — player bar fill
+;   $3F0E: $30 (white) — text color (names, VS, timer)
+;   $3F0F: $11 (blue) — enemy bar fill (was $3D pale yellow-green,
+;          unused; repurposed so player=red and enemy=blue are visually
+;          distinct, per request, instead of red vs white)
+; NOTE: the NES only exposes one BG3 palette for both HUD columns (attribute
+; table works in 16x16px quadrants, and both bars share palette 3 here), so
+; the two bars are differentiated by fill color (orange-red vs white) rather
+; than a genuinely separate "blue" -- there is no spare BG palette slot for
+; a distinct blue without stealing one of the three stage palettes (sky/
+; stone/foliage), which would affect the background art. See CONTINUOUS
+; HEALTH BAR note below for the current (single-bar, non-segmented) tile
+; scheme.
 ; =============================================================================
 
 ; THE LAST KUMITE — HUD System
@@ -30,38 +40,43 @@
 ; =============================================================================
 ; INIT HUD — Setup initial HUD display
 ; =============================================================================
+; Layout (rows 0-1 are a dedicated HUD strip, see LoadFightStage):
+;   Row 0: [player bar: cols 1-10]        [timer: cols 15-16]   [enemy bar: cols 21-30]
+;   Row 1: [player name: cols 1-7]        [VS: cols 15-16]      [enemy name: cols 21-29]
+; =============================================================================
 .export InitHUD
 InitHUD:
-    ; Draw player name: "MICHAEL"
+    ; Draw player name: "MICHAEL" (row 1, under the player bar)
     SET_PTR text_ptr_lo, hud_michael
-    lda #2
+    lda #1
     sta text_x_pos
-    lda #2
+    lda #1
     sta text_y_pos
     jsr DrawText
 
-    ; Draw enemy name: "LIGHTNING"
+    ; Draw enemy name: "LIGHTNING" (row 1, under the enemy bar)
     SET_PTR text_ptr_lo, hud_lightning
-    lda #19
+    lda #21
     sta text_x_pos
-    lda #2
+    lda #1
     sta text_y_pos
     jsr DrawText
 
-    ; Draw initial health bars (both full)
+    ; Draw initial health bars (both full) — top corners, row 0
     jsr DrawHealthBars
 
-    ; Draw "VS" between health bars
+    ; Draw "VS" between the names (row 1, centered)
     SET_PTR text_ptr_lo, hud_vs
-    lda #14
+    lda #15
     sta text_x_pos
-    lda #3
+    lda #1
     sta text_y_pos
     jsr DrawText
 
-    ; Draw timer display
+    ; Draw timer display (row 0, centered, between the two bars)
     jsr DrawTimer
     rts
+
 
 ; =============================================================================
 ; UPDATE HUD — Per-frame HUD updates (health bars, timer)
@@ -120,15 +135,19 @@ DrawHealthBars:
     rts
 
 ; =============================================================================
-; DRAW PLAYER HEALTH BAR
+; DRAW PLAYER HEALTH BAR — single continuous bar (borderless track + fill)
+; =============================================================================
+; The bar is still built from 10 background tiles (nametable columns 3-12),
+; but each tile now has 8 sub-steps of fill resolution instead of being a
+; single on/off block. Health logic (plr_hp / plr_hp_disp) is unchanged --
+; only how HP is turned into tiles changed.
 ; =============================================================================
 DrawPlayerBar:
-    ; Player bar at nametable position (3, 3) to (12, 3)
-    ; 10 tiles = 100 HP / 10 per tile
     lda plr_hp_disp
-    jsr CalcBarTiles         ; temp1 = filled tile count
+    jsr CalcBarEighths       ; temp1 = total eighths filled (0-80)
+    lda temp1
+    sta temp2                ; temp2 = running remainder for this bar
 
-    ; Write 10 tiles, each as its own full [addr_hi][addr_lo][tile] entry
     ldy #0
 @plr_bar_loop:
     SKIP_IF_BG_QUEUE_FULL @plr_bar_done
@@ -138,17 +157,11 @@ DrawPlayerBar:
     inx
     tya
     clc
-    adc #$83                ; Row 3, col 3 ($2083) + tile offset
+    adc #$01                ; Row 0, col 1 ($2001) + tile offset
     sta bg_update_buf, x
     inx
 
-    cpy temp1                ; Filled tiles
-    bcc @plr_fill
-    lda #$02                ; Empty bar tile
-    jmp @plr_tile
-@plr_fill:
-    lda #$03                ; Full bar tile (red)
-@plr_tile:
+    jsr NextBarTile_Player    ; A = tile index for this column, updates temp2
     sta bg_update_buf, x
     inx
     stx bg_update_byte_idx
@@ -161,12 +174,13 @@ DrawPlayerBar:
     rts
 
 ; =============================================================================
-; DRAW ENEMY HEALTH BAR
+; DRAW ENEMY HEALTH BAR — single continuous bar (borderless track + fill)
 ; =============================================================================
 DrawEnemyBar:
-    ; Enemy bar at nametable position (19, 3) to (28, 3)
     lda en_hp_disp
-    jsr CalcBarTiles
+    jsr CalcBarEighths
+    lda temp1
+    sta temp2
 
     ldy #0
 @en_bar_loop:
@@ -177,17 +191,11 @@ DrawEnemyBar:
     inx
     tya
     clc
-    adc #$93                ; Row 3, col 19 ($2093) + tile offset
+    adc #$15                ; Row 0, col 21 ($2015) + tile offset
     sta bg_update_buf, x
     inx
 
-    cpy temp1
-    bcc @en_fill
-    lda #$02
-    jmp @en_tile
-@en_fill:
-    lda #$04                ; Full bar tile (blue for enemy)
-@en_tile:
+    jsr NextBarTile_Enemy
     sta bg_update_buf, x
     inx
     stx bg_update_byte_idx
@@ -200,28 +208,90 @@ DrawEnemyBar:
     rts
 
 ; =============================================================================
-; CALC BAR TILES — Convert HP to number of filled tiles
-; Input: A = HP value
-; Output: temp1 = number of filled tiles (0-10)
+; NEXT BAR TILE (PLAYER) — consumes up to 8 eighths from temp2, returns tile
+; Input:  temp2 = eighths remaining across the whole bar
+; Output: A = tile index for this column; temp2 -= min(temp2, 8)
+;   temp2 == 0      -> $02 track (empty)
+;   temp2 >= 8       -> $03 full player tile, temp2 -= 8
+;   1 <= temp2 <= 7  -> $05 + (temp2-1) partial tile, temp2 = 0 (remainder consumed)
 ; =============================================================================
-CalcBarTiles:
-    ldx #0
-@div_loop:
-    cmp #10
-    bcc @div_done
+NextBarTile_Player:
+    lda temp2
+    beq @empty
+    cmp #8
+    bcc @partial
+    lda temp2
     sec
-    sbc #10
-    inx
-    jmp @div_loop
-@div_done:
-    stx temp1
+    sbc #8
+    sta temp2
+    lda #$03
     rts
+@partial:
+    tax                      ; X = 1-7 eighths for this tile
+    lda #0
+    sta temp2                ; whole remainder consumed by this tile
+    txa
+    clc
+    adc #$04                 ; $05-1 base, +eighths(1-7) -> $05..$0B
+    rts
+@empty:
+    lda #$02
+    rts
+
+; =============================================================================
+; NEXT BAR TILE (ENEMY) — same as above, enemy partial tiles at $15-$1B
+; =============================================================================
+NextBarTile_Enemy:
+    lda temp2
+    beq @empty
+    cmp #8
+    bcc @partial
+    lda temp2
+    sec
+    sbc #8
+    sta temp2
+    lda #$04
+    rts
+@partial:
+    tax
+    lda #0
+    sta temp2
+    txa
+    clc
+    adc #$14                 ; $15-1 base, +eighths(1-7) -> $15..$1B
+    rts
+@empty:
+    lda #$02
+    rts
+
+; =============================================================================
+; CALC BAR EIGHTHS — Convert HP (0-100) to total eighth-tile-steps (0-80)
+; Input: A = HP value (0-100)
+; Output: temp1 = floor(HP * 8 / 10), i.e. eighths of the 10-tile bar filled
+; Implemented as a single table lookup (no runtime multiply/divide) --
+; the cheapest possible 6502 implementation, avoids the old block-quantized
+; HP/10 division.
+; =============================================================================
+CalcBarEighths:
+    tax
+    lda bar_eighths_table, x
+    sta temp1
+    rts
+
+bar_eighths_table:
+    .byte 0,0,1,2,3,4,4,5,6,7,8,8,9,10,11,12
+    .byte 12,13,14,15,16,16,17,18,19,20,20,21,22,23,24,24
+    .byte 25,26,27,28,28,29,30,31,32,32,33,34,35,36,36,37
+    .byte 38,39,40,40,41,42,43,44,44,45,46,47,48,48,49,50
+    .byte 51,52,52,53,54,55,56,56,57,58,59,60,60,61,62,63
+    .byte 64,64,65,66,67,68,68,69,70,71,72,72,73,74,75,76
+    .byte 76,77,78,79,80
 
 ; =============================================================================
 ; DRAW TIMER — Match countdown display
 ; =============================================================================
 DrawTimer:
-    ; Timer at position (14, 5) — center top
+    ; Timer at row 0, cols 15-16 — center top, between the two bars
     ; Convert seconds to BCD-like display
     lda match_timer_sec
     ldx #0
@@ -242,7 +312,7 @@ DrawTimer:
     lda #$20
     sta bg_update_buf, x
     inx
-    lda #$AE                ; Row 5, col 14 ($20AE)
+    lda #$0F                ; Row 0, col 15 ($200F)
     sta bg_update_buf, x
     inx
     lda temp1
@@ -259,7 +329,7 @@ DrawTimer:
     lda #$20
     sta bg_update_buf, x
     inx
-    lda #$AF                ; Row 5, col 15 ($20AF)
+    lda #$10                ; Row 0, col 16 ($2010)
     sta bg_update_buf, x
     inx
     lda temp2

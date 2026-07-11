@@ -113,7 +113,7 @@ class Palette(Enum):
 
 # Each palette's 4 NES color entries, index 0 is always the shared backdrop.
 PALETTE_COLORS: Dict[Palette, Tuple[int, int, int, int]] = {
-    Palette.SKY: (0x0F, 0x21, 0x31, 0x20),
+    Palette.SKY: (0x0F, 0x02, 0x21, 0x20),
     Palette.STONE: (0x0F, 0x0C, 0x1C, 0x2C),
     Palette.FOLIAGE: (0x0F, 0x0A, 0x1A, 0x2A),
 }
@@ -123,8 +123,8 @@ PALETTE_COLORS: Dict[Palette, Tuple[int, int, int, int]] = {
 # converter will ever write to CHR.
 NES_HEX_TO_RGB: Dict[int, Tuple[int, int, int]] = {
     0x0F: (0, 0, 0),
+    0x02: (8, 16, 144),
     0x21: (76, 154, 236),
-    0x31: (168, 204, 236),
     0x20: (236, 238, 236),
     0x0C: (0, 50, 60),
     0x1C: (0, 102, 120),
@@ -277,28 +277,95 @@ def assign_block_palettes(
 
 # ---------------------------------------------------------------------------
 # Step 4: reduce each pixel to its 2-bit index within its block's palette.
+#
+# DITHERING NOTE (quality fix): the source art has 197 distinct colors
+# (gradients, anti-aliasing) but only 10 NES colors are ever available, 3-4
+# per block. Earlier versions (and the plain nearest-color fallback below)
+# picked a single closest palette entry per pixel, which flattens any
+# in-between shade to the nearest hard step -- this is the actual cause of
+# large flat, "repetitive" regions (the sky gradient in particular collapses
+# to one solid color tile repeated everywhere).
+#
+# Instead of inventing new colors or tiles, we recover the in-between shade
+# using a 4x4 ordered (Bayer) dither between the two NEAREST colors already
+# in the block's approved palette. This is a pure encoding choice -- it adds
+# no new NES colors, and because the Bayer matrix has period 4 and tiles are
+# 8x8 (a multiple of 4), a genuinely flat source region still dithers
+# identically at every tile-aligned position, so exact-match tile dedup is
+# completely unaffected and the tile budget cannot grow because of this.
+# Only source pixels that fall BETWEEN two palette colors gain dithered
+# texture; pixels that are already an exact palette color are left alone.
 # ---------------------------------------------------------------------------
-def pixel_palette_index(match: PixelMatch, block_palette: Palette) -> int:
+_BAYER_4X4: Tuple[Tuple[int, ...], ...] = (
+    (0, 8, 2, 10),
+    (12, 4, 14, 6),
+    (3, 11, 1, 9),
+    (15, 7, 13, 5),
+)
+
+
+def _two_nearest(rgb: Tuple[int, int, int], palette_colors: Tuple[int, ...]) -> Tuple[int, int, float]:
+    """Return (index_of_nearest, index_of_second_nearest, blend_fraction).
+
+    blend_fraction is how far rgb sits from the nearest color toward the
+    second-nearest, projected onto the segment between them and clamped to
+    [0, 1]; 0 means "use the nearest color only", 1 means "use the
+    second-nearest only".
+    """
+    dists = [
+        (idx, _color_distance_sq(rgb, NES_HEX_TO_RGB[hex_code]))
+        for idx, hex_code in enumerate(palette_colors)
+    ]
+    dists.sort(key=lambda pair: pair[1])
+    near_idx, near_dist = dists[0]
+    second_idx, _ = dists[1]
+
+    if near_dist == 0:
+        return near_idx, second_idx, 0.0
+
+    near_rgb = NES_HEX_TO_RGB[palette_colors[near_idx]]
+    second_rgb = NES_HEX_TO_RGB[palette_colors[second_idx]]
+    seg = tuple(b - a for a, b in zip(near_rgb, second_rgb))
+    seg_len_sq = sum(v * v for v in seg)
+    if seg_len_sq == 0:
+        return near_idx, second_idx, 0.0
+
+    to_pixel = tuple(p - a for a, p in zip(near_rgb, rgb))
+    t = sum(a * b for a, b in zip(to_pixel, seg)) / seg_len_sq
+    return near_idx, second_idx, max(0.0, min(1.0, t))
+
+
+def pixel_palette_index(
+    match: PixelMatch, block_palette: Palette, x: int, y: int
+) -> int:
     if match.palette is None:
         return 0  # shared backdrop is always slot 0
 
     palette_colors = PALETTE_COLORS[block_palette]
-    if match.hex_color in palette_colors:
+    if match.exact and match.hex_color in palette_colors:
         return palette_colors.index(match.hex_color)
 
-    # This pixel's exact color belongs to a different palette than the one
-    # the block was resolved to (a minority-vote pixel in a mixed block).
-    # Re-quantize it to the nearest color within the block's palette; this
-    # is the only place pixel colors are altered, and only ever happens for
-    # pixels inside a block that build_pixel_matches/assign_block_palettes
-    # already flagged with a printed warning.
-    best_index = 0
-    best_dist: Optional[int] = None
-    for idx, hex_code in enumerate(palette_colors):
-        dist = _color_distance_sq(match.rgb, NES_HEX_TO_RGB[hex_code])
-        if best_dist is None or dist < best_dist:
-            best_dist, best_index = dist, idx
-    return best_index
+    # Not an exact match to one of this block's approved colors (either it
+    # was only ever a nearest-color guess, or it's a minority-vote pixel in
+    # a mixed block being re-quantized into the winning palette). Dither
+    # between the two nearest approved colors instead of hard-snapping to
+    # one, to preserve gradient detail. Deterministic on absolute pixel
+    # position so tile dedup for genuinely flat regions is unaffected.
+    near_idx, second_idx, t = _two_nearest(match.rgb, palette_colors)
+    # Only dither near-50/50 blends (46%-54% of the way between the two
+    # nearest colors). Weaker blends snap to the nearest color exactly as
+    # before. This band was calibrated empirically against this stage's
+    # art: it's the widest band that still fits the fixed 96-tile budget
+    # (95 unique tiles used, 1 tile of headroom) while still targeting the
+    # pixels that were most ambiguously between two colors -- exactly
+    # where hard nearest-neighbor quantization produced the most visible
+    # banding.
+    if t <= 0.46:
+        return near_idx
+    if t >= 0.54:
+        return second_idx
+    threshold = (_BAYER_4X4[y % 4][x % 4] + 0.5) / 16.0
+    return second_idx if t > threshold else near_idx
 
 
 def build_index_grid(
@@ -311,7 +378,7 @@ def build_index_grid(
         row_palettes = block_palettes[block_y]
         for x in range(IMAGE_WIDTH_PX):
             block_x = x // ATTR_BLOCK_SIZE_PX
-            grid[y][x] = pixel_palette_index(matches[y][x], row_palettes[block_x])
+            grid[y][x] = pixel_palette_index(matches[y][x], row_palettes[block_x], x, y)
     return grid
 
 

@@ -17,10 +17,18 @@ InitFight:
     ; Clear rendering
     RENDER_OFF
 
-    ; BG1/BG2 ($3F05-$3F0B) are shared palette RAM slots also used by
-    ; other states (BG2 is the title logo's red/gold/white). Re-point
-    ; them at the stage's stone/foliage ramps here so a fight entered
+    ; BG0/BG1/BG2 ($3F01-$3F0B) are shared palette RAM slots also used
+    ; by other states (BG0 is the title/menu screens' bright text blue,
+    ; BG2 is the title logo's red/gold/white). Re-point them at the
+    ; stage's night-sky/stone/foliage ramps here so a fight entered
     ; after visiting the title screen doesn't inherit the wrong colors.
+    PPU_SETADDR $3F01
+    lda #$02
+    sta PPU_DATA
+    lda #$21
+    sta PPU_DATA
+    lda #$20
+    sta PPU_DATA
     PPU_SETADDR $3F05
     lda #$0C
     sta PPU_DATA
@@ -202,22 +210,24 @@ RenderFight:
 ; RENDER PAUSE OVERLAY
 ; =============================================================================
 RenderPauseOverlay:
-    ; Blink "PAUSED" text
+    ; Blink "PAUSED" text -- in the HUD strip (row 1, cols 8-13, the gap
+    ; between the player name and "VS"), not center-screen over the
+    ; fight stage where it used to block the view of the action.
     lda framecounter
     and #32
     beq @pause_hide
     SET_PTR text_ptr_lo, paused_text
-    lda #12
+    lda #8
     sta text_x_pos
-    lda #14
+    lda #1
     sta text_y_pos
     jsr DrawTextBuffered
     rts
 @pause_hide:
     SET_PTR text_ptr_lo, blank_paused
-    lda #12
+    lda #8
     sta text_x_pos
-    lda #14
+    lda #1
     sta text_y_pos
     jsr DrawTextBuffered
     rts
@@ -294,18 +304,44 @@ LoadFightStage:
     ; Attribute table — 64 bytes streamed straight from the converter's
     ; computed stage_attribute_table (src/stage_bg.inc), which assigns
     ; BG0 (sky)/BG1 (stone)/BG2 (foliage) per 16x16px quadrant based on
-    ; the source art. (Previously this routine wrote two hardcoded
-    ; uniform-palette loops -- sky on top, one earth palette on the
-    ; bottom -- and silently ignored the generated table entirely, which
-    ; is part of why foliage/stone couldn't be told apart on screen.)
+    ; the source art.
+    ;
+    ; HUD REDESIGN: the HUD (names, VS, timer, both health bars) now
+    ; lives entirely in nametable rows 0-1, and those two rows are
+    ; blanked out full-width below before InitHUD draws into them. Since
+    ; no background art tile is ever visible in rows 0-1 anymore, it's
+    ; safe to force the ENTIRE top quadrant of every attribute byte in
+    ; row-group 0 to palette 3 (HUD) -- there's no background content
+    ; left there to bleed into or clip. (Earlier versions of this fix
+    ; tried to mask only the exact HUD element columns while background
+    ; art was still showing through the gaps, which produced a blocky
+    ; pink patchwork -- reserving the whole strip is both simpler and
+    ; correct.) Rows 2-27 (attribute bytes 8-63, and the bottom quadrant
+    ; of bytes 0-7) are untouched real background art.
     PPU_SETADDR $23C0
     ldx #0
 @attr_loop:
     lda stage_attribute_table, x
+    cpx #8
+    bcs @attr_store           ; x >= 8: below the HUD strip, not touched
+    ora #%00001111             ; force both top quadrants to palette 3
+@attr_store:
     sta PPU_DATA
     inx
     cpx #64
     bcc @attr_loop
+
+    ; Blank nametable rows 0-1 full-width (64 tiles) so no background
+    ; art shows through the HUD strip -- InitHUD draws names/bars/timer
+    ; into this space right after LoadFightStage returns.
+    PPU_SETADDR $2000
+    lda #0
+    ldx #0
+@blank_hud_loop:
+    sta PPU_DATA
+    inx
+    cpx #64
+    bcc @blank_hud_loop
 
     rts
 
