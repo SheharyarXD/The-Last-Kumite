@@ -68,6 +68,9 @@ NMI:
     ; -------------------------------------------------------------------------
     lda bg_update_count
     beq @no_bg_update
+    lda bg_queue_busy
+    bne @no_bg_update        ; a producer is mid-write this frame -- skip,
+                              ; process on a later vblank once it's done
     jsr ProcessBGUpdates
 @no_bg_update:
 
@@ -303,6 +306,8 @@ DrawTextBuffered:
     sta temp2
 
     ldy #0
+    lda #1
+    sta bg_queue_busy
 @buf_loop:
     lda (text_ptr_lo), y
     beq @buf_done
@@ -366,6 +371,8 @@ DrawTextBuffered:
     cpy #20                 ; Max 20 chars per buffered write
     bcc @buf_loop
 @buf_done:
+    lda #0
+    sta bg_queue_busy
     rts
 
 ; (UpdateHealthBar removed: it was dead code, never called, and used an

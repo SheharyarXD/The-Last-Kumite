@@ -116,6 +116,15 @@ HandleFight:
     beq @fight_paused
     lda #0
     sta pause_flag
+    ; Clear the PAUSED text immediately -- RenderPauseOverlay only runs
+    ; while pause_flag is set, so without this the text would otherwise
+    ; sit on screen forever after unpausing.
+    SET_PTR text_ptr_lo, blank_paused
+    lda #8
+    sta text_x_pos
+    lda #1
+    sta text_y_pos
+    jsr DrawTextBuffered
 @fight_paused:
     rts
 
@@ -210,12 +219,9 @@ RenderFight:
 ; RENDER PAUSE OVERLAY
 ; =============================================================================
 RenderPauseOverlay:
-    ; Blink "PAUSED" text -- in the HUD strip (row 1, cols 8-13, the gap
+    ; Static "PAUSED" text -- in the HUD strip (row 1, cols 8-13, the gap
     ; between the player name and "VS"), not center-screen over the
     ; fight stage where it used to block the view of the action.
-    lda framecounter
-    and #32
-    beq @pause_hide
     SET_PTR text_ptr_lo, paused_text
     lda #8
     sta text_x_pos
@@ -223,13 +229,6 @@ RenderPauseOverlay:
     sta text_y_pos
     jsr DrawTextBuffered
     rts
-@pause_hide:
-    SET_PTR text_ptr_lo, blank_paused
-    lda #8
-    sta text_x_pos
-    lda #1
-    sta text_y_pos
-    jsr DrawTextBuffered
     rts
 
 ; =============================================================================

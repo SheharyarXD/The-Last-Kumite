@@ -33,13 +33,22 @@
 ;              full 10-tile/100 HP bar) so HP drains as one smooth ramp
 ;              instead of jumping a whole tile at a time. See hud.asm
 ;              CalcBarEighths / bar-draw loop.
-;   $0C-$0F:   UI border tiles (unused, reserved)
+;   $0C-$0F:   Health bar PARTIAL-fill tiles -- enemy, RIGHT-ALIGNED
+;              mirror of $15-$18 (1/8..4/8 filled, blue $11). The enemy
+;              bar fills right-to-left (anchored to the outer/right edge,
+;              draining toward center), so its partial boundary tile must
+;              show fill touching the tile's RIGHT edge, not its left --
+;              these are horizontally-flipped copies of $15-$18.
 ;   $10-$11:   Ground tiles
 ;   $12:       Sky tile
 ;   $13-$14:   Wall/building tiles
-;   $15-$1B:   Health bar PARTIAL-fill tiles -- enemy, same scheme as
-;              $05-$0B but filled in $11 blue
-;   $1C-$1F:   Reserved
+;   $15-$1B:   Health bar PARTIAL-fill tiles -- enemy, LEFT-ALIGNED
+;              source art, same scheme as $05-$0B but filled in $11 blue.
+;              $15-$1B (1/8-7/8) are the originals the $0C-$0F/$1C-$1E
+;              mirrored tiles were flipped from; no longer drawn directly.
+;   $1C-$1E:   Health bar PARTIAL-fill tiles -- enemy, RIGHT-ALIGNED
+;              mirror of $19-$1B (5/8..7/8 filled). See $0C-$0F above.
+;   $1F:       Reserved (spare)
 ;   $20-$7F:   Stage background tiles
 ;   $80-$9F:   Alphabet tiles (A-Z)
 ;   $A0-$A9:   Number tiles (0-9)

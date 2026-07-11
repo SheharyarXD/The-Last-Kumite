@@ -83,9 +83,16 @@ InitHUD:
 ; =============================================================================
 .export UpdateHUD
 UpdateHUD:
+    ; Health bars are queued FIRST so they always get first claim on the
+    ; shared bg_update_buf this frame -- if the timer or other HUD text
+    ; filled the queue first, a same-frame collision could truncate a
+    ; bar's redraw mid-column, which is what made the bars look like
+    ; they were changing in uneven patches instead of draining smoothly.
+    jsr @check_bars_entry
+
     ; Update match timer
     dec match_timer_sub
-    bne @check_bars
+    bne @hud_done
     lda #60                 ; 60 frames = 1 second
     sta match_timer_sub
     dec match_timer_sec
@@ -94,8 +101,10 @@ UpdateHUD:
     rts
 @update_timer_disp:
     jsr DrawTimer
+@hud_done:
+    rts
 
-@check_bars:
+@check_bars_entry:
     ; Smooth health bar animation (displayed HP approaches actual HP)
     ; Player health bar
     lda plr_hp_disp
@@ -114,16 +123,16 @@ UpdateHUD:
     ; Enemy health bar
     lda en_hp_disp
     cmp en_hp
-    beq @hud_done
+    beq @bars_done
     bcc @en_bar_up
     dec en_hp_disp
     jsr DrawEnemyBar
-    jmp @hud_done
+    jmp @bars_done
 @en_bar_up:
     lda en_hp
     sta en_hp_disp
 
-@hud_done:
+@bars_done:
     rts
 
 ; =============================================================================
@@ -148,6 +157,8 @@ DrawPlayerBar:
     lda temp1
     sta temp2                ; temp2 = running remainder for this bar
 
+    lda #1
+    sta bg_queue_busy
     ldy #0
 @plr_bar_loop:
     SKIP_IF_BG_QUEUE_FULL @plr_bar_done
@@ -171,6 +182,8 @@ DrawPlayerBar:
     cpy #10
     bcc @plr_bar_loop
 @plr_bar_done:
+    lda #0
+    sta bg_queue_busy
     rts
 
 ; =============================================================================
@@ -182,7 +195,12 @@ DrawEnemyBar:
     lda temp1
     sta temp2
 
-    ldy #0
+    lda #1
+    sta bg_queue_busy
+    ldy #9                   ; start at the RIGHTMOST column (col 30, the
+                              ; outer screen edge) and work left toward
+                              ; center, so the bar fills/drains mirrored
+                              ; relative to the player bar
 @en_bar_loop:
     SKIP_IF_BG_QUEUE_FULL @en_bar_done
     ldx bg_update_byte_idx
@@ -201,10 +219,11 @@ DrawEnemyBar:
     stx bg_update_byte_idx
     inc bg_update_count
 
-    iny
-    cpy #10
-    bcc @en_bar_loop
+    dey
+    bpl @en_bar_loop
 @en_bar_done:
+    lda #0
+    sta bg_queue_busy
     rts
 
 ; =============================================================================
@@ -227,10 +246,12 @@ NextBarTile_Player:
     lda #$03
     rts
 @partial:
-    tax                      ; X = 1-7 eighths for this tile
+    sta temp3                ; temp3 = 1-7 eighths for this tile (X untouched --
+                              ; caller has the bg_update_buf write offset in X
+                              ; across this call, must not be clobbered)
     lda #0
     sta temp2                ; whole remainder consumed by this tile
-    txa
+    lda temp3
     clc
     adc #$04                 ; $05-1 base, +eighths(1-7) -> $05..$0B
     rts
@@ -239,7 +260,9 @@ NextBarTile_Player:
     rts
 
 ; =============================================================================
-; NEXT BAR TILE (ENEMY) — same as above, enemy partial tiles at $15-$1B
+; NEXT BAR TILE (ENEMY) — same as above, but the bar now fills right-to-
+; left (see DrawEnemyBar), so partial tiles use the RIGHT-ALIGNED mirrored
+; set ($0C-$0F, $1C-$1E) instead of the left-aligned $15-$1B originals.
 ; =============================================================================
 NextBarTile_Enemy:
     lda temp2
@@ -253,16 +276,24 @@ NextBarTile_Enemy:
     lda #$04
     rts
 @partial:
-    tax
+    sta temp3                ; temp3 = 1-7 eighths for this tile
     lda #0
     sta temp2
-    txa
-    clc
-    adc #$14                 ; $15-1 base, +eighths(1-7) -> $15..$1B
+    stx temp4                ; save caller's bg_update_buf offset (X) --
+                              ; must not clobber it, caller uses X after
+                              ; this call returns
+    ldx temp3
+    lda en_bar_mirror_tiles - 1, x   ; index 1-7 -> mirrored tile number
+    ldx temp4                ; restore caller's X
     rts
 @empty:
     lda #$02
     rts
+
+; Right-aligned mirrored partial tiles for the enemy bar, indexed by
+; eighths-filled (1-7). See chr_data.asm CHR layout note.
+en_bar_mirror_tiles:
+    .byte $0C, $0D, $0E, $0F, $1C, $1D, $1E
 
 ; =============================================================================
 ; CALC BAR EIGHTHS — Convert HP (0-100) to total eighth-tile-steps (0-80)

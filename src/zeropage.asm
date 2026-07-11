@@ -72,6 +72,9 @@ death_type          = $0036     ; Random death type (0-3)
 next_death_type     = $0037     ; Counter for pseudo-random death
 fade_level          = $0038     ; 0-5 brightness level
 text_scroll_y       = $0039     ; For intro text scrolling
+bg_queue_busy       = $003A     ; 1 while a producer is mid-write to bg_update_buf;
+                                 ; NMI's ProcessBGUpdates must skip this vblank if set
+                                 ; (see ppu.asm NMI + hud.asm bar/timer producers).
 
 ; =============================================================================
 ; PLAYER STATE — Michael Rivers ($0040-$005F)
@@ -214,5 +217,11 @@ OAM_BUF_X           = $0203
 ; =============================================================================
 ; Stores (addr_hi, addr_lo, tile) triplets for PPU updates
 bg_update_buf       = $0300
-MAX_BG_UPDATES      = 32        ; 32 entries x 3 bytes = 96 bytes ($0300-$035F)
-                                 ; Worst case/frame: timer(2)+plr_bar(10)+en_bar(10)+combo(5)=27
+MAX_BG_UPDATES      = 48        ; 48 entries x 3 bytes = 144 bytes ($0300-$038F)
+                                 ; Worst case/frame: timer(2)+plr_bar(10)+en_bar(10)+combo(5)
+                                 ; +KO msg(2-13)+pause "PAUSED"(6) could exceed the old 32-entry
+                                 ; cap when several HUD elements update the same frame (e.g. a
+                                 ; KO flash while both health bars are still animating), which
+                                 ; silently dropped tiles mid-bar and made the health bars look
+                                 ; like they were filling/draining in uneven patches instead of
+                                 ; a smooth gradient. Raised with headroom to spare.

@@ -133,6 +133,18 @@ HandleTitle:
 InitIntro:
     RENDER_OFF
 
+    ; BG0 ($3F01-$3F03) — same fix as InitTitle/InitMenu: this is a
+    ; text-only story screen drawn on BG0, so it needs the bright blue/
+    ; white ramp instead of whatever was left behind (the fight stage's
+    ; dark navy sky, which reads as a dull purplish color behind text).
+    PPU_SETADDR $3F01
+    lda #$21
+    sta PPU_DATA
+    lda #$31
+    sta PPU_DATA
+    lda #$20
+    sta PPU_DATA
+
     ; Clear nametable (fills with blank tile $00)
     lda #0
     sta nametable
@@ -240,6 +252,18 @@ HandleIntro:
 InitVS:
     RENDER_OFF
 
+    ; BG0 ($3F01-$3F03) — same fix as InitTitle/InitMenu: names/VS text
+    ; here is drawn on BG0, so it needs the bright blue/white ramp
+    ; instead of the fight stage's dark navy sky left over from a
+    ; previous match (which reads as a dull purplish color).
+    PPU_SETADDR $3F01
+    lda #$21
+    sta PPU_DATA
+    lda #$31
+    sta PPU_DATA
+    lda #$20
+    sta PPU_DATA
+
     ; Clear screen
     lda #0
     sta nametable
@@ -305,6 +329,19 @@ HandleVS:
 .export InitWin
 InitWin:
     RENDER_OFF
+
+    ; BG0 ($3F01-$3F03) — same fix as InitTitle/InitMenu: "YOU WIN" /
+    ; "ENTRY GRANTED" text is drawn on BG0, so it needs the bright blue/
+    ; white ramp instead of the fight stage's dark navy sky (which is
+    ; what was active during the match and reads as a dull purplish
+    ; color behind text instead of the light blue the title screen uses).
+    PPU_SETADDR $3F01
+    lda #$21
+    sta PPU_DATA
+    lda #$31
+    sta PPU_DATA
+    lda #$20
+    sta PPU_DATA
 
     ; Clear screen
     lda #0
@@ -384,6 +421,17 @@ HandleLose:
 .export InitGameOver
 InitGameOver:
     RENDER_OFF
+
+    ; BG0 ($3F01-$3F03) — same fix as InitTitle/InitMenu: the GAME OVER
+    ; text is drawn on BG0, so it needs the bright blue/white ramp
+    ; instead of the fight stage's dark navy sky (dull purplish look).
+    PPU_SETADDR $3F01
+    lda #$21
+    sta PPU_DATA
+    lda #$31
+    sta PPU_DATA
+    lda #$20
+    sta PPU_DATA
 
     ; Pick random death type (0-3)
     RANDOM_A
